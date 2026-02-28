@@ -644,6 +644,19 @@ func (s *Site) renderFeed() error {
 	if err := s.writeOutput("atom.xml", atom); err != nil {
 		return err
 	}
+	for _, sec := range s.Library.Sections {
+		if !sec.Meta.GenerateFeed && !sec.Meta.GenerateFeeds {
+			continue
+		}
+		entries := s.sectionPageEntries(sec)
+		secAtom, secErr := s.Templates.Render("atom.xml", map[string]any{"pages": entries, "config": map[string]any{"title": s.Config.Title}, "section": map[string]any{"path": sec.Path, "title": sec.Meta.Title}})
+		if secErr != nil {
+			secAtom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+		}
+		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), "atom.xml"), secAtom); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

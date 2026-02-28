@@ -24,6 +24,8 @@ type SectionFrontMatter struct {
 	PaginateBy       int      `toml:"paginate_by" yaml:"paginate_by"`
 	PaginatePath     string   `toml:"paginate_path" yaml:"paginate_path"`
 	PaginateReversed bool     `toml:"paginate_reversed" yaml:"paginate_reversed"`
+	GenerateFeed     bool     `toml:"generate_feed" yaml:"generate_feed"`
+	GenerateFeeds    bool     `toml:"generate_feeds" yaml:"generate_feeds"`
 }
 
 type Page struct {
