@@ -124,6 +124,10 @@ func filterIgnored(paths []string, ignore []string) []string {
 				ignored = true
 				break
 			}
+			if match, _ := filepath.Match(i, p); match {
+				ignored = true
+				break
+			}
 		}
 		if !ignored {
 			out = append(out, p)

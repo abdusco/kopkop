@@ -88,3 +88,16 @@ func TestCompareDirectories_DetectsMissingAndDiff(t *testing.T) {
 	assert.Equal(t, "missing in right", diffs[1].Reason)
 	assert.Equal(t, "only-left.txt", diffs[1].Path)
 }
+
+func TestCompareDirectories_IgnoresGlobPatterns(t *testing.T) {
+	t.Parallel()
+
+	left := t.TempDir()
+	right := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(left, "a.html"), []byte("one"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(right, "a.html"), []byte("two"), 0o644))
+
+	diffs, err := CompareDirectories(left, right, []string{"*.html"})
+	require.NoError(t, err)
+	assert.Empty(t, diffs)
+}
