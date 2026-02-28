@@ -216,6 +216,7 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 		Components:   splitComponents(strings.Trim(p, "/")),
 		Pages:        []string{},
 		Subsections:  []string{},
+		Translations: []string{},
 	}, nil
 }
 
@@ -453,14 +454,22 @@ func attachTranslations(lib *Library, defaultLang string) {
 	for _, paths := range groups {
 		sort.Strings(paths)
 		for _, rel := range paths {
-			others := make([]string, 0, len(paths)-1)
-			for _, p := range paths {
-				if p == rel {
-					continue
-				}
-				others = append(others, p)
-			}
-			lib.Pages[rel].Translations = others
+			all := make([]string, 0, len(paths))
+			all = append(all, paths...)
+			lib.Pages[rel].Translations = all
+		}
+	}
+
+	sectionGroups := map[string][]string{}
+	for rel, sec := range lib.Sections {
+		sectionGroups[translationKey(rel, sec.Lang, defaultLang)] = append(sectionGroups[translationKey(rel, sec.Lang, defaultLang)], rel)
+	}
+	for _, paths := range sectionGroups {
+		sort.Strings(paths)
+		for _, rel := range paths {
+			all := make([]string, 0, len(paths))
+			all = append(all, paths...)
+			lib.Sections[rel].Translations = all
 		}
 	}
 }

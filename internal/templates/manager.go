@@ -559,6 +559,40 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		v := math.Round(f*pow) / pow
 		return value.FromString(fmt.Sprintf("%.*f", precision, v)), nil
 	})
+
+	env.AddFilter("default", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+
+		fallback, hasFallback := kwargs["value"]
+		if !hasFallback && len(args) > 0 {
+			fallback = args[0]
+			hasFallback = true
+		}
+		if !hasFallback {
+			return value.Undefined(), fmt.Errorf("default expects value")
+		}
+
+		strict := false
+		if v, ok := kwargs["boolean"]; ok {
+			if b, ok := v.AsBool(); ok {
+				strict = b
+			}
+		} else if len(args) > 1 {
+			if b, ok := args[1].AsBool(); ok {
+				strict = b
+			}
+		}
+
+		if val.IsUndefined() {
+			return fallback, nil
+		}
+		if !strict {
+			if s, ok := val.AsString(); ok && s == "" {
+				return fallback, nil
+			}
+		}
+		return val, nil
+	})
 }
 
 func firstPathArg(args []value.Value, kwargs map[string]value.Value) (string, error) {

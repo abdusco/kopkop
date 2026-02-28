@@ -208,6 +208,24 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
+	for _, rel := range paths {
+		pg := s.Library.Pages[rel]
+		rendered, err := s.renderMarkdownWithShortcodes(pg, defs)
+		if err != nil {
+			return fmt.Errorf("render markdown %s: %w", rel, err)
+		}
+		pg.Content = rendered.Body
+		pg.Summary = rendered.Summary
+		pg.ExternalLinks = rendered.ExternalLinks
+		pg.InternalLinks = make([]content.InternalLink, 0, len(rendered.InternalLinks))
+		for _, il := range rendered.InternalLinks {
+			pg.InternalLinks = append(pg.InternalLinks, content.InternalLink{Path: il.Path, Anchor: il.Anchor})
+		}
+		pg.TOC = make([]content.Heading, 0, len(rendered.TOC))
+		for _, h := range rendered.TOC {
+			pg.TOC = append(pg.TOC, content.Heading{ID: h.ID, Level: h.Level, Title: h.Title})
+		}
+	}
 	if concurrency <= 0 {
 		concurrency = 1
 	}
@@ -220,23 +238,6 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 		defer wg.Done()
 		for rel := range jobs {
 			pg := s.Library.Pages[rel]
-			rendered, err := s.renderMarkdownWithShortcodes(pg, defs)
-			if err != nil {
-				results <- pageRenderArtifact{Err: fmt.Errorf("render markdown %s: %w", rel, err)}
-				continue
-			}
-			pg.Content = rendered.Body
-			pg.Summary = rendered.Summary
-			pg.ExternalLinks = rendered.ExternalLinks
-			pg.InternalLinks = make([]content.InternalLink, 0, len(rendered.InternalLinks))
-			for _, il := range rendered.InternalLinks {
-				pg.InternalLinks = append(pg.InternalLinks, content.InternalLink{Path: il.Path, Anchor: il.Anchor})
-			}
-			pg.TOC = make([]content.Heading, 0, len(rendered.TOC))
-			for _, h := range rendered.TOC {
-				pg.TOC = append(pg.TOC, content.Heading{ID: h.ID, Level: h.Level, Title: h.Title})
-			}
-
 			if strings.TrimSpace(pg.Meta.RedirectTo) != "" {
 				redirect := s.renderRedirect(s.redirectTargetURL(pg.Meta.RedirectTo))
 				results <- pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
@@ -247,16 +248,7 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			ctx := s.baseTemplateContext(pg.Lang)
 			ctx["page"] = s.pageView(rel, pg)
 			if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
-				ctx["section"] = map[string]any{
-					"title":         sec.Meta.Title,
-					"description":   sec.Meta.Description,
-					"path":          sec.Path,
-					"relative_path": sec.RelativePath,
-					"permalink":     sec.Permalink,
-					"pages":         s.sectionPageEntries(sec),
-					"subsections":   sec.Subsections,
-					"content":       sec.Content,
-				}
+				ctx["section"] = s.sectionView(pg.ParentSection, sec, s.sectionPageEntries(sec))
 			}
 			ctx["lang"] = pg.Lang
 			ctx["current_url"] = pg.Permalink
@@ -360,9 +352,86 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"later":         later,
 		"translations":  trans,
 		"assets":        pg.Assets,
-		"taxonomies":    pg.Meta.Taxonomies,
+		"taxonomies":    taxonomiesView(pg.Meta.Taxonomies),
 		"aliases":       pg.Meta.Aliases,
 		"draft":         pg.Meta.Draft,
+	}
+}
+
+func taxonomiesView(in map[string][]string) []any {
+	if len(in) == 0 {
+		return []any{}
+	}
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]any, 0, len(keys))
+	for _, k := range keys {
+		items := make([]any, 0, len(in[k]))
+		for _, v := range in[k] {
+			items = append(items, v)
+		}
+		out = append(out, []any{k, items})
+	}
+	return out
+}
+
+func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]any) map[string]any {
+	trans := make([]map[string]any, 0, len(sec.Translations))
+	transByLang := map[string]map[string]any{}
+	for _, tRel := range sec.Translations {
+		if ts, ok := s.Library.Sections[tRel]; ok {
+			entry := map[string]any{
+				"path":      tRel,
+				"lang":      ts.Lang,
+				"title":     ts.Meta.Title,
+				"permalink": ts.Permalink,
+			}
+			trans = append(trans, entry)
+			transByLang[ts.Lang] = entry
+		}
+	}
+	if isRootSectionPath(sec.RelativePath) {
+		langs := append([]string{s.Config.DefaultLanguage}, mapKeys(s.Config.Languages)...)
+		all := make([]map[string]any, 0, len(langs))
+		for _, lang := range langs {
+			if entry, ok := transByLang[lang]; ok {
+				all = append(all, entry)
+				continue
+			}
+			path := "_index.md"
+			permalink := strings.TrimRight(s.Config.BaseURL, "/") + "/"
+			if lang != s.Config.DefaultLanguage {
+				path = "_index." + lang + ".md"
+				permalink = strings.TrimRight(s.Config.BaseURL, "/") + "/" + lang + "/"
+			}
+			all = append(all, map[string]any{
+				"path":      path,
+				"lang":      lang,
+				"title":     "",
+				"permalink": permalink,
+			})
+		}
+		sort.SliceStable(all, func(i, j int) bool {
+			return fmt.Sprint(all[i]["path"]) < fmt.Sprint(all[j]["path"])
+		})
+		trans = all
+	}
+	return map[string]any{
+		"title":             sec.Meta.Title,
+		"description":       sec.Meta.Description,
+		"path":              sec.Path,
+		"relative_path":     sec.RelativePath,
+		"permalink":         sec.Permalink,
+		"pages":             pages,
+		"subsections":       sec.Subsections,
+		"content":           sec.Content,
+		"paginate_by":       sec.Meta.PaginateBy,
+		"paginate_path":     sec.Meta.PaginatePath,
+		"paginate_reversed": sec.Meta.PaginateReversed,
+		"translations":      trans,
 	}
 }
 
@@ -493,19 +562,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			ctx := s.baseTemplateContext(sec.Lang)
 			ctx["current_url"] = sectionPagerPermalink(sec.Path, sec.Permalink, strings.Trim(sec.Meta.PaginatePath, "/"), 1)
 			ctx["current_path"] = sec.Path
-			ctx["section"] = map[string]any{
-				"title":             sec.Meta.Title,
-				"description":       sec.Meta.Description,
-				"path":              sec.Path,
-				"relative_path":     sec.RelativePath,
-				"permalink":         sec.Permalink,
-				"pages":             plan.Pages,
-				"subsections":       sec.Subsections,
-				"content":           sec.Content,
-				"paginate_by":       sec.Meta.PaginateBy,
-				"paginate_path":     sec.Meta.PaginatePath,
-				"paginate_reversed": sec.Meta.PaginateReversed,
-			}
+			ctx["section"] = s.sectionView(rel, sec, plan.Pages)
 			if plan.Paginator != nil {
 				ctx["paginator"] = plan.Paginator
 				if cur, ok := plan.Paginator["current"].(string); ok {
@@ -549,6 +606,26 @@ func (s *Site) renderSections(liveReloadURL string) error {
 				continue
 			}
 			ctx := s.baseTemplateContext(lang)
+			translations := make([]map[string]any, 0)
+			for _, tLang := range append([]string{s.Config.DefaultLanguage}, mapKeys(s.Config.Languages)...) {
+				tRel := "_index.md"
+				if tLang != s.Config.DefaultLanguage {
+					tRel = "_index." + tLang + ".md"
+				}
+				tPermalink := strings.TrimRight(s.Config.BaseURL, "/") + "/"
+				tTitle := ""
+				if tLang != s.Config.DefaultLanguage {
+					tPermalink = strings.TrimRight(s.Config.BaseURL, "/") + "/" + tLang + "/"
+				}
+				if ts, ok := s.Library.Sections[tRel]; ok {
+					tPermalink = ts.Permalink
+					tTitle = ts.Meta.Title
+				}
+				translations = append(translations, map[string]any{"path": tRel, "lang": tLang, "title": tTitle, "permalink": tPermalink})
+			}
+			sort.SliceStable(translations, func(i, j int) bool {
+				return fmt.Sprint(translations[i]["path"]) < fmt.Sprint(translations[j]["path"])
+			})
 			ctx["section"] = map[string]any{
 				"title":             defaultRoot.Meta.Title,
 				"description":       defaultRoot.Meta.Description,
@@ -561,6 +638,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 				"paginate_by":       0,
 				"paginate_path":     "",
 				"paginate_reversed": false,
+				"translations":      translations,
 			}
 			rootTpl := "section.html"
 			if s.templateExists("index.html") {
@@ -1451,6 +1529,15 @@ func injectLiveReload(html string, reloadURL string) string {
 	return html + script
 }
 
+func mapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func (s *Site) serializedPages() map[string]any {
 	out := map[string]any{}
 	for rel, pg := range s.Library.Pages {
@@ -1462,20 +1549,7 @@ func (s *Site) serializedPages() map[string]any {
 func (s *Site) serializedSections() map[string]any {
 	out := map[string]any{}
 	for rel, sec := range s.Library.Sections {
-		pages := s.sectionPageEntries(sec)
-		out[rel] = map[string]any{
-			"title":             sec.Meta.Title,
-			"description":       sec.Meta.Description,
-			"path":              sec.Path,
-			"relative_path":     sec.RelativePath,
-			"permalink":         sec.Permalink,
-			"pages":             pages,
-			"subsections":       sec.Subsections,
-			"content":           sec.Content,
-			"paginate_by":       sec.Meta.PaginateBy,
-			"paginate_path":     sec.Meta.PaginatePath,
-			"paginate_reversed": sec.Meta.PaginateReversed,
-		}
+		out[rel] = s.sectionView(rel, sec, s.sectionPageEntries(sec))
 	}
 	return out
 }

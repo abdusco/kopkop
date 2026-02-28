@@ -72,6 +72,7 @@ type Section struct {
 	Components   []string
 	Pages        []string
 	Subsections  []string
+	Translations []string
 }
 
 type Heading struct {
