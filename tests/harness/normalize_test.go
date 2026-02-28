@@ -101,3 +101,84 @@ func TestCompareDirectories_IgnoresGlobPatterns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, diffs)
 }
+
+func TestNormalizeHTML_IgnoresTranslationOrderOnly(t *testing.T) {
+	t.Parallel()
+
+	a := `<p>Intro</p>
+Translated in fr: Bonjour
+<br><br>
+<p>Salut</p>
+Translated in en: Hello
+<br><br>
+<p>Hi</p>`
+	b := `<p>Intro</p>
+Translated in en: Hello
+<br><br>
+<p>Hi</p>
+Translated in fr: Bonjour
+<br><br>
+<p>Salut</p>`
+
+	na, err := NormalizeByExt(".html", []byte(a))
+	require.NoError(t, err)
+	nb, err := NormalizeByExt(".html", []byte(b))
+	require.NoError(t, err)
+	assert.Equal(t, string(na), string(nb))
+}
+
+func TestNormalizeHTML_StillDetectsTranslationContentChanges(t *testing.T) {
+	t.Parallel()
+
+	a := `Translated in en: Hello
+<br><br>
+<p>Hi</p>`
+	b := `Translated in en: Hello
+<br><br>
+<p>Different body</p>`
+
+	na, err := NormalizeByExt(".html", []byte(a))
+	require.NoError(t, err)
+	nb, err := NormalizeByExt(".html", []byte(b))
+	require.NoError(t, err)
+	assert.NotEqual(t, string(na), string(nb))
+}
+
+func TestNormalizeJS_SearchIndexKeepsSemanticFields(t *testing.T) {
+	t.Parallel()
+
+	a := `window.searchIndex = window.searchIndex || {};
+window.searchIndex["en"] = [{"title":"A","permalink":"https://example.com/a/"},{"title":"B","permalink":"https://example.com/b/"}];`
+	b := `window.searchIndex = window.searchIndex || {};
+window.searchIndex["en"] = [{"title":"B","permalink":"https://example.com/b/"},{"title":"A","permalink":"https://example.com/a/"}];`
+	c := `window.searchIndex = window.searchIndex || {};
+window.searchIndex["en"] = [{"title":"Changed","permalink":"https://example.com/a/"},{"title":"B","permalink":"https://example.com/b/"}];`
+
+	na, err := NormalizeByExt(".js", []byte(a))
+	require.NoError(t, err)
+	nb, err := NormalizeByExt(".js", []byte(b))
+	require.NoError(t, err)
+	nc, err := NormalizeByExt(".js", []byte(c))
+	require.NoError(t, err)
+
+	assert.Equal(t, string(na), string(nb))
+	assert.NotEqual(t, string(na), string(nc))
+}
+
+func TestNormalizeJS_LunrIndexKeepsDocumentIDsAndTitles(t *testing.T) {
+	t.Parallel()
+
+	a := `window.searchIndex = {"documentStore":{"docs":{"https://example.com/a/":{"title":"A"},"https://example.com/b/":{"title":"B"}}}};`
+	b := `window.searchIndex = {"documentStore":{"docs":{"https://example.com/b/":{"title":"B"},"https://example.com/a/":{"title":"A"}}}};`
+	c := `window.searchIndex = {"documentStore":{"docs":{"https://example.com/a/":{"title":"Changed"},"https://example.com/b/":{"title":"B"}}}};`
+
+	na, err := NormalizeByExt(".js", []byte(a))
+	require.NoError(t, err)
+	nb, err := NormalizeByExt(".js", []byte(b))
+	require.NoError(t, err)
+	nc, err := NormalizeByExt(".js", []byte(c))
+	require.NoError(t, err)
+
+	assert.Equal(t, string(na), string(nb))
+	assert.NotEqual(t, string(na), string(nc))
+}

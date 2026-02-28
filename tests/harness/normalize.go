@@ -13,8 +13,9 @@ import (
 
 var wsRe = regexp.MustCompile(`\s+`)
 var translatedInMarkerRe = regexp.MustCompile(`Translated in [^:]+:`)
-var permalinkRe = regexp.MustCompile(`"(https?://[^"\\]+)"`)
 var articleBlockRe = regexp.MustCompile(`(?s)<article>.*?</article>`)
+var simpleSearchJSRe = regexp.MustCompile(`(?s)window\.searchIndex\[[^\]]+\]\s*=\s*(\[.*\])\s*;?`)
+var lunrSearchJSRe = regexp.MustCompile(`(?s)window\.searchIndex\s*=\s*(\{.*\})\s*;?`)
 
 func NormalizeByExt(ext string, in []byte) ([]byte, error) {
 	switch strings.ToLower(ext) {
@@ -145,20 +146,46 @@ func normalizeJS(in []byte) []byte {
 	if !strings.Contains(s, "searchIndex") {
 		return []byte(s)
 	}
-	matches := permalinkRe.FindAllStringSubmatch(s, -1)
-	if len(matches) == 0 {
-		return []byte(s)
-	}
-	set := map[string]struct{}{}
-	for _, m := range matches {
-		if len(m) > 1 {
-			set[m[1]] = struct{}{}
+	if m := simpleSearchJSRe.FindStringSubmatch(s); len(m) == 2 {
+		type searchEntry struct {
+			Title     string `json:"title"`
+			Permalink string `json:"permalink"`
 		}
+		var entries []searchEntry
+		if err := json.Unmarshal([]byte(m[1]), &entries); err != nil {
+			return []byte(s)
+		}
+		vals := make([]string, 0, len(entries))
+		for _, e := range entries {
+			vals = append(vals, e.Permalink+"|"+e.Title)
+		}
+		sort.Strings(vals)
+		return []byte(strings.Join(vals, "\n"))
 	}
-	vals := make([]string, 0, len(set))
-	for v := range set {
-		vals = append(vals, v)
+
+	if m := lunrSearchJSRe.FindStringSubmatch(s); len(m) == 2 {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(m[1]), &payload); err != nil {
+			return []byte(s)
+		}
+		documentStore, _ := payload["documentStore"].(map[string]any)
+		docs, _ := documentStore["docs"].(map[string]any)
+		if len(docs) == 0 {
+			return []byte(s)
+		}
+		vals := make([]string, 0, len(docs))
+		for id, rawDoc := range docs {
+			title := ""
+			if doc, ok := rawDoc.(map[string]any); ok {
+				if t, ok := doc["title"].(string); ok {
+					title = t
+				}
+			}
+			vals = append(vals, id+"|"+title)
+		}
+		sort.Strings(vals)
+		return []byte(strings.Join(vals, "\n"))
 	}
-	sort.Strings(vals)
-	return []byte(strings.Join(vals, "\n"))
+
+	return []byte(s)
 }
