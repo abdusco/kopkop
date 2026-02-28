@@ -94,6 +94,8 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 	}
 
 	attachPagesToSections(lib)
+	attachSubsections(lib)
+	attachTranslations(lib, cfg.DefaultLanguage)
 	buildTaxonomies(lib, cfg)
 	return lib, nil
 }
@@ -194,6 +196,7 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 		Permalink:    permalink,
 		Components:   splitComponents(strings.Trim(p, "/")),
 		Pages:        []string{},
+		Subsections:  []string{},
 	}, nil
 }
 
@@ -230,6 +233,91 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 			}
 		}
 	}
+}
+
+func attachSubsections(lib *Library) {
+	sectionKeys := make([]string, 0, len(lib.Sections))
+	for k := range lib.Sections {
+		sectionKeys = append(sectionKeys, k)
+	}
+	sort.Strings(sectionKeys)
+
+	for _, parentKey := range sectionKeys {
+		parentDir := filepath.ToSlash(filepath.Dir(parentKey))
+		for _, childKey := range sectionKeys {
+			if childKey == parentKey {
+				continue
+			}
+			childDir := filepath.ToSlash(filepath.Dir(childKey))
+			if childDir == "." {
+				childDir = ""
+			}
+			if parentDir == "." {
+				parentDir = ""
+			}
+			if parentDir == "" {
+				if countSegments(childDir) == 1 {
+					lib.Sections[parentKey].Subsections = append(lib.Sections[parentKey].Subsections, childKey)
+				}
+				continue
+			}
+			prefix := parentDir + "/"
+			if strings.HasPrefix(childDir, prefix) {
+				rest := strings.TrimPrefix(childDir, prefix)
+				if countSegments(rest) == 1 {
+					lib.Sections[parentKey].Subsections = append(lib.Sections[parentKey].Subsections, childKey)
+				}
+			}
+		}
+		sort.Strings(lib.Sections[parentKey].Subsections)
+	}
+}
+
+func attachTranslations(lib *Library, defaultLang string) {
+	groups := map[string][]string{}
+	for rel, p := range lib.Pages {
+		groups[translationKey(rel, p.Lang, defaultLang)] = append(groups[translationKey(rel, p.Lang, defaultLang)], rel)
+	}
+	for _, paths := range groups {
+		sort.Strings(paths)
+		for _, rel := range paths {
+			others := make([]string, 0, len(paths)-1)
+			for _, p := range paths {
+				if p == rel {
+					continue
+				}
+				others = append(others, p)
+			}
+			lib.Pages[rel].Translations = others
+		}
+	}
+}
+
+func translationKey(rel string, lang string, defaultLang string) string {
+	base := filepath.Base(rel)
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	if dir == "." {
+		dir = ""
+	}
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	if lang != "" && lang != defaultLang {
+		suffix := "." + lang
+		if strings.HasSuffix(name, suffix) {
+			name = strings.TrimSuffix(name, suffix)
+		}
+	}
+	if dir == "" {
+		return name
+	}
+	return dir + "/" + name
+}
+
+func countSegments(p string) int {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return 0
+	}
+	return len(strings.Split(p, "/"))
 }
 
 func inferLangFromFilename(relPath string, def string) string {

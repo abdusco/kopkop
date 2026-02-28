@@ -208,35 +208,14 @@ func (s *Site) renderAllPages(liveReloadURL string) error {
 		tplName := "page.html"
 		if pg.Meta.Template != "" {
 			tplName = pg.Meta.Template
+		} else if sec, ok := s.Library.Sections[pg.ParentSection]; ok && sec.Meta.PageTemplate != "" {
+			tplName = sec.Meta.PageTemplate
 		}
-		ctx := map[string]any{
-			"config": map[string]any{
-				"base_url": s.Config.BaseURL,
-				"title":    s.Config.Title,
-			},
-			"page": map[string]any{
-				"title":        pg.Meta.Title,
-				"description":  pg.Meta.Description,
-				"content":      pg.Content,
-				"path":         pg.Path,
-				"permalink":    pg.Permalink,
-				"lang":         pg.Lang,
-				"toc":          pg.TOC,
-				"summary":      pg.Summary,
-				"slug":         pg.Slug,
-				"date":         pg.Date,
-				"earlier":      map[string]any{"permalink": "", "title": ""},
-				"later":        map[string]any{"permalink": "", "title": ""},
-				"translations": []any{},
-				"assets":       pg.Assets,
-				"taxonomies":   pg.Meta.Taxonomies,
-				"aliases":      pg.Meta.Aliases,
-				"draft":        pg.Meta.Draft,
-			},
-			"lang":         pg.Lang,
-			"current_url":  pg.Permalink,
-			"current_path": pg.Path,
-		}
+		ctx := s.baseTemplateContext(pg.Lang)
+		ctx["page"] = s.pageView(rel, pg)
+		ctx["lang"] = pg.Lang
+		ctx["current_url"] = pg.Permalink
+		ctx["current_path"] = pg.Path
 		html, err := s.Templates.Render(tplName, ctx)
 		if err != nil {
 			html = "<html><body>" + pg.Content + "</body></html>"
@@ -247,6 +226,58 @@ func (s *Site) renderAllPages(liveReloadURL string) error {
 		}
 	}
 	return nil
+}
+
+func (s *Site) baseTemplateContext(lang string) map[string]any {
+	ctx := map[string]any{
+		"config": map[string]any{
+			"base_url":         s.Config.BaseURL,
+			"title":            s.Config.Title,
+			"description":      s.Config.Description,
+			"default_language": s.Config.DefaultLanguage,
+			"extra":            map[string]any{},
+		},
+		"__pages":        s.serializedPages(),
+		"__sections":     s.serializedSections(),
+		"__taxonomies":   s.serializedTaxonomies(),
+		"__translations": map[string]any{},
+		"lang":           lang,
+	}
+	return ctx
+}
+
+func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
+	trans := make([]map[string]any, 0, len(pg.Translations))
+	for _, tRel := range pg.Translations {
+		if tp, ok := s.Library.Pages[tRel]; ok {
+			trans = append(trans, map[string]any{
+				"path":      tRel,
+				"lang":      tp.Lang,
+				"title":     tp.Meta.Title,
+				"permalink": tp.Permalink,
+			})
+		}
+	}
+	return map[string]any{
+		"title":         pg.Meta.Title,
+		"description":   pg.Meta.Description,
+		"content":       pg.Content,
+		"path":          pg.Path,
+		"relative_path": pg.RelativePath,
+		"permalink":     pg.Permalink,
+		"lang":          pg.Lang,
+		"toc":           pg.TOC,
+		"summary":       pg.Summary,
+		"slug":          pg.Slug,
+		"date":          pg.Date,
+		"earlier":       map[string]any{"permalink": "", "title": ""},
+		"later":         map[string]any{"permalink": "", "title": ""},
+		"translations":  trans,
+		"assets":        pg.Assets,
+		"taxonomies":    pg.Meta.Taxonomies,
+		"aliases":       pg.Meta.Aliases,
+		"draft":         pg.Meta.Draft,
+	}
 }
 
 func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
@@ -330,17 +361,18 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			pg := s.Library.Pages[p]
 			pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
 		}
-		html, err := s.Templates.Render(tpl, map[string]any{
-			"config": map[string]any{"base_url": s.Config.BaseURL, "title": s.Config.Title},
-			"section": map[string]any{
-				"title":       sec.Meta.Title,
-				"description": sec.Meta.Description,
-				"path":        sec.Path,
-				"permalink":   sec.Permalink,
-				"pages":       pages,
-			},
-			"lang": sec.Lang,
-		})
+		ctx := s.baseTemplateContext(sec.Lang)
+		ctx["section"] = map[string]any{
+			"title":         sec.Meta.Title,
+			"description":   sec.Meta.Description,
+			"path":          sec.Path,
+			"relative_path": sec.RelativePath,
+			"permalink":     sec.Permalink,
+			"pages":         pages,
+			"subsections":   sec.Subsections,
+			"content":       sec.Content,
+		}
+		html, err := s.Templates.Render(tpl, ctx)
 		if err != nil {
 			html = "<html><body><h1>" + sec.Meta.Title + "</h1></body></html>"
 		}
@@ -361,10 +393,9 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 				entries = append(entries, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink})
 			}
 			pathSlug := strings.ReplaceAll(strings.ToLower(termName), " ", "-")
-			html, err := s.Templates.Render("taxonomy_single.html", map[string]any{
-				"taxonomy": map[string]any{"name": tax.Name, "term": termName, "pages": entries},
-				"config":   map[string]any{"base_url": s.Config.BaseURL},
-			})
+			ctx := s.baseTemplateContext(s.Config.DefaultLanguage)
+			ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
+			html, err := s.Templates.Render("taxonomy_single.html", ctx)
 			if err != nil {
 				html = "<html><body><h1>" + tax.Name + ": " + termName + "</h1></body></html>"
 			}
@@ -521,4 +552,53 @@ func injectLiveReload(html string, reloadURL string) string {
 		return strings.Replace(html, "</body>", script+"</body>", 1)
 	}
 	return html + script
+}
+
+func (s *Site) serializedPages() map[string]any {
+	out := map[string]any{}
+	for rel, pg := range s.Library.Pages {
+		out[rel] = s.pageView(rel, pg)
+	}
+	return out
+}
+
+func (s *Site) serializedSections() map[string]any {
+	out := map[string]any{}
+	for rel, sec := range s.Library.Sections {
+		pages := make([]map[string]any, 0, len(sec.Pages))
+		for _, p := range sec.Pages {
+			if pg, ok := s.Library.Pages[p]; ok {
+				pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
+			}
+		}
+		out[rel] = map[string]any{
+			"title":         sec.Meta.Title,
+			"description":   sec.Meta.Description,
+			"path":          sec.Path,
+			"relative_path": sec.RelativePath,
+			"permalink":     sec.Permalink,
+			"pages":         pages,
+			"subsections":   sec.Subsections,
+			"content":       sec.Content,
+		}
+	}
+	return out
+}
+
+func (s *Site) serializedTaxonomies() map[string]any {
+	out := map[string]any{}
+	for name, tx := range s.Library.Taxonomies {
+		terms := map[string]any{}
+		for termName, term := range tx.Terms {
+			pages := make([]map[string]any, 0, len(term.Pages))
+			for _, rel := range term.Pages {
+				if pg, ok := s.Library.Pages[rel]; ok {
+					pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
+				}
+			}
+			terms[termName] = map[string]any{"name": termName, "pages": pages}
+		}
+		out[name] = map[string]any{"name": name, "terms": terms}
+	}
+	return out
 }

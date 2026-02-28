@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/mitsuhiko/minijinja/minijinja-go/v2/value"
 
 	"github.com/abdusco/kopkop/internal/imageproc"
+	"github.com/abdusco/kopkop/internal/markdown"
 )
 
 var namedEndTagRe = regexp.MustCompile(`\{%(\s*end(?:macro|block))\s+[a-zA-Z0-9_]+\s*%\}`)
@@ -179,21 +181,166 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("get_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		if len(args) == 0 {
-			return value.Undefined(), fmt.Errorf("get_url expects at least one argument")
+		p := ""
+		if v, ok := kwargs["path"]; ok {
+			ps, ok := v.AsString()
+			if !ok {
+				return value.Undefined(), fmt.Errorf("get_url path must be string")
+			}
+			p = ps
+		} else if len(args) > 0 {
+			ps, ok := args[0].AsString()
+			if !ok {
+				return value.Undefined(), fmt.Errorf("get_url expects a string path")
+			}
+			p = ps
+		} else {
+			return value.Undefined(), fmt.Errorf("get_url expects path argument")
 		}
-		p, ok := args[0].AsString()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("get_url expects a string path")
+		cachebust := false
+		if v, ok := kwargs["cachebust"]; ok {
+			if b, ok := v.AsBool(); ok {
+				cachebust = b
+			}
 		}
+
 		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
 			return value.FromString(p), nil
 		}
 		if !strings.HasPrefix(p, "/") {
 			p = "/" + p
 		}
+		if cachebust {
+			local := strings.TrimPrefix(p, "/")
+			candidate := filepath.Join(basePath, "static", local)
+			if b, err := os.ReadFile(candidate); err == nil {
+				h := sha256.Sum256(b)
+				p = p + "?h=" + fmt.Sprintf("%x", h[:8])
+			}
+		}
 		return value.FromString(p), nil
+	})
+
+	env.AddFunction("get_page", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		pathArg, err := firstPathArg(args, kwargs)
+		if err != nil {
+			return value.Undefined(), err
+		}
+		pages := state.Lookup("__pages")
+		if m, ok := pages.AsMap(); ok {
+			if v, ok := m[pathArg]; ok {
+				return v, nil
+			}
+		}
+		return value.Undefined(), fmt.Errorf("page not found: %s", pathArg)
+	})
+
+	env.AddFunction("get_section", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		pathArg, err := firstPathArg(args, kwargs)
+		if err != nil {
+			return value.Undefined(), err
+		}
+		sections := state.Lookup("__sections")
+		if m, ok := sections.AsMap(); ok {
+			if v, ok := m[pathArg]; ok {
+				return v, nil
+			}
+		}
+		return value.Undefined(), fmt.Errorf("section not found: %s", pathArg)
+	})
+
+	env.AddFunction("get_taxonomy", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = args
+		kindVal, ok := kwargs["kind"]
+		if !ok {
+			return value.Undefined(), fmt.Errorf("get_taxonomy expects kind=...")
+		}
+		kind, ok := kindVal.AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("get_taxonomy kind must be string")
+		}
+		taxos := state.Lookup("__taxonomies")
+		if m, ok := taxos.AsMap(); ok {
+			if v, ok := m[kind]; ok {
+				return v, nil
+			}
+		}
+		return value.Undefined(), fmt.Errorf("taxonomy not found: %s", kind)
+	})
+
+	env.AddFunction("get_taxonomy_term", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = args
+		kindVal, kOK := kwargs["kind"]
+		termVal, tOK := kwargs["term"]
+		if !kOK || !tOK {
+			return value.Undefined(), fmt.Errorf("get_taxonomy_term expects kind=... term=...")
+		}
+		kind, ok := kindVal.AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("kind must be string")
+		}
+		term, ok := termVal.AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("term must be string")
+		}
+		taxos := state.Lookup("__taxonomies")
+		if m, ok := taxos.AsMap(); ok {
+			if v, ok := m[kind]; ok {
+				if tm, ok := v.AsMap(); ok {
+					if termsV, ok := tm["terms"]; ok {
+						if termsMap, ok := termsV.AsMap(); ok {
+							if tV, ok := termsMap[term]; ok {
+								return tV, nil
+							}
+						}
+					}
+				}
+			}
+		}
+		return value.Undefined(), fmt.Errorf("taxonomy term not found: %s/%s", kind, term)
+	})
+
+	env.AddFunction("get_taxonomy_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		_ = args
+		kindVal, kOK := kwargs["kind"]
+		termVal, tOK := kwargs["name"]
+		if !tOK {
+			termVal, tOK = kwargs["term"]
+		}
+		if !kOK || !tOK {
+			return value.Undefined(), fmt.Errorf("get_taxonomy_url expects kind and name/term")
+		}
+		kind, _ := kindVal.AsString()
+		term, _ := termVal.AsString()
+		slug := strings.ReplaceAll(strings.ToLower(term), " ", "-")
+		return value.FromString("/" + kind + "/" + slug + "/"), nil
+	})
+
+	env.AddFunction("trans", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = kwargs
+		if len(args) == 0 {
+			return value.Undefined(), fmt.Errorf("trans expects key")
+		}
+		key, ok := args[0].AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("trans key must be string")
+		}
+		translations := state.Lookup("__translations")
+		lang := ""
+		if langV, ok := state.Lookup("lang").AsString(); ok {
+			lang = langV
+		}
+		if m, ok := translations.AsMap(); ok {
+			if lv, ok := m[lang]; ok {
+				if lm, ok := lv.AsMap(); ok {
+					if tv, ok := lm[key]; ok {
+						return tv, nil
+					}
+				}
+			}
+		}
+		return value.FromString(key), nil
 	})
 
 	env.AddFunction("load_data", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
@@ -216,13 +363,26 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 
 	env.AddFunction("get_hash", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		_ = state
-		_ = kwargs
-		if len(args) == 0 {
-			return value.Undefined(), fmt.Errorf("get_hash expects content or file path")
+		base64Out := false
+		if b, ok := kwargs["base64"]; ok {
+			if bv, ok := b.AsBool(); ok {
+				base64Out = bv
+			}
 		}
-		raw, ok := args[0].AsString()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("get_hash first arg must be string")
+
+		raw := ""
+		if p, ok := kwargs["path"]; ok {
+			if ps, ok := p.AsString(); ok {
+				raw = ps
+			}
+		}
+		if raw == "" && len(args) > 0 {
+			if ps, ok := args[0].AsString(); ok {
+				raw = ps
+			}
+		}
+		if raw == "" {
+			return value.Undefined(), fmt.Errorf("get_hash expects content or file path")
 		}
 		data := []byte(raw)
 		if st, err := os.Stat(filepath.Join(basePath, raw)); err == nil && !st.IsDir() {
@@ -231,6 +391,9 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 			}
 		}
 		sum := sha256.Sum256(data)
+		if base64Out {
+			return value.FromString(base64.StdEncoding.EncodeToString(sum[:])), nil
+		}
 		return value.FromString(fmt.Sprintf("%x", sum[:])), nil
 	})
 
@@ -330,4 +493,57 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		}
 		return value.FromString(r.ReplaceAllString(s, repl)), nil
 	})
+
+	env.AddFilter("markdown", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		_ = args
+		_ = kwargs
+		s, ok := val.AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("markdown filter expects string")
+		}
+		res, err := markdown.RenderContent(s, markdown.RenderContext{})
+		if err != nil {
+			return value.Undefined(), err
+		}
+		return value.FromSafeString(res.Body), nil
+	})
+
+	env.AddFilter("num_format", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		_ = kwargs
+		f, ok := val.AsFloat()
+		if !ok {
+			if i, ok := val.AsInt(); ok {
+				f = float64(i)
+			} else {
+				return value.Undefined(), fmt.Errorf("num_format expects number")
+			}
+		}
+		precision := 2
+		if len(args) > 0 {
+			if p, ok := args[0].AsInt(); ok {
+				precision = int(p)
+			}
+		}
+		pow := math.Pow10(precision)
+		v := math.Round(f*pow) / pow
+		return value.FromString(fmt.Sprintf("%.*f", precision, v)), nil
+	})
+}
+
+func firstPathArg(args []value.Value, kwargs map[string]value.Value) (string, error) {
+	if v, ok := kwargs["path"]; ok {
+		if s, ok := v.AsString(); ok {
+			return s, nil
+		}
+		return "", fmt.Errorf("path must be string")
+	}
+	if len(args) > 0 {
+		if s, ok := args[0].AsString(); ok {
+			return s, nil
+		}
+		return "", fmt.Errorf("path must be string")
+	}
+	return "", fmt.Errorf("missing path argument")
 }

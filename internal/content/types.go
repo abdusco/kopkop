@@ -15,11 +15,12 @@ type PageFrontMatter struct {
 }
 
 type SectionFrontMatter struct {
-	Title       string   `toml:"title" yaml:"title"`
-	Description string   `toml:"description" yaml:"description"`
-	Template    string   `toml:"template" yaml:"template"`
-	Aliases     []string `toml:"aliases" yaml:"aliases"`
-	SortBy      string   `toml:"sort_by" yaml:"sort_by"`
+	Title        string   `toml:"title" yaml:"title"`
+	Description  string   `toml:"description" yaml:"description"`
+	Template     string   `toml:"template" yaml:"template"`
+	PageTemplate string   `toml:"page_template" yaml:"page_template"`
+	Aliases      []string `toml:"aliases" yaml:"aliases"`
+	SortBy       string   `toml:"sort_by" yaml:"sort_by"`
 }
 
 type Page struct {
@@ -40,6 +41,7 @@ type Page struct {
 	ExternalLinks []string
 	Date          *time.Time
 	ParentSection string
+	Translations  []string
 }
 
 type Section struct {
@@ -53,6 +55,7 @@ type Section struct {
 	Permalink    string
 	Components   []string
 	Pages        []string
+	Subsections  []string
 }
 
 type Heading struct {

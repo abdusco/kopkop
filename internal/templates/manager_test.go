@@ -78,6 +78,31 @@ func TestManagerHelpers(t *testing.T) {
 	assert.Contains(t, imgOut, "/processed_images/")
 }
 
+func TestLookupHelpers(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "lookup.txt"), []byte(`{% set p = get_page(path="a.md") %}{% set s = get_section(path="blog/_index.md") %}{% set tx = get_taxonomy(kind="tags") %}{{ p.title }}|{{ s.title }}|{{ tx.name }}|{{ get_taxonomy_url(kind="tags", term="Go Lang") }}`), 0o644))
+
+	mgr, err := LoadManager(root, "")
+	require.NoError(t, err)
+
+	out, err := mgr.Render("lookup.txt", map[string]any{
+		"__pages": map[string]any{
+			"a.md": map[string]any{"title": "PageA"},
+		},
+		"__sections": map[string]any{
+			"blog/_index.md": map[string]any{"title": "Blog"},
+		},
+		"__taxonomies": map[string]any{
+			"tags": map[string]any{"name": "tags", "terms": map[string]any{}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "PageA|Blog|tags|/tags/go-lang/", out)
+}
+
 func TestNormalizeTemplateSyntax_NamedEndTags(t *testing.T) {
 	t.Parallel()
 
