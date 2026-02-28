@@ -177,6 +177,77 @@ generate_robots_txt = false
 	require.NotContains(t, string(first), "Post 1;")
 }
 
+func TestSiteBuild_PaginatedSectionWritesPageOneAlias(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+compile_sass = false
+generate_sitemap = false
+generate_feeds = false
+build_search_index = false
+generate_robots_txt = false
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\npaginate_by=1\n+++\nWelcome"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "a.md"), []byte("+++\ntitle='A'\n+++\nHello"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>section</body></html>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	_, err = os.Stat(filepath.Join(root, "public", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "page", "1", "index.html"))
+	require.NoError(t, err)
+}
+
+func TestSiteBuild_TaxonomyListAndTermFeed(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+compile_sass = false
+generate_sitemap = false
+generate_feeds = true
+build_search_index = false
+generate_robots_txt = false
+taxonomies = [{name = "podcast_authors", feed = true}]
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\nWelcome"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "post.md"), []byte("+++\ntitle='Post'\ntaxonomies={podcast_authors=['Some Person']}\n+++\nHello"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "taxonomy_list.html"), []byte("<html><body>{% for t in taxonomy.terms %}{{ t.name }};{% endfor %}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "taxonomy_single.html"), []byte("<html><body>{{ taxonomy.term }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "atom.xml"), []byte("<?xml version='1.0'?><feed></feed>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	_, err = os.Stat(filepath.Join(root, "public", "podcast-authors", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "podcast-authors", "some-person", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "podcast-authors", "some-person", "atom.xml"))
+	require.NoError(t, err)
+
+}
+
 func collectFiles(t *testing.T, root string) []string {
 	t.Helper()
 	files := []string{}

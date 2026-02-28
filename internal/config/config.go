@@ -37,6 +37,7 @@ type Search struct {
 
 type TaxonomyConfig struct {
 	Name string `toml:"name"`
+	Feed bool   `toml:"feed"`
 }
 
 type LanguageOptions struct {

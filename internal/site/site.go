@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/abdusco/kopkop/internal/assets"
 	"github.com/abdusco/kopkop/internal/config"
@@ -518,6 +519,10 @@ func (s *Site) sectionRenderPlans(sec *content.Section, entries []map[string]any
 			pager["next"] = sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, i+1)
 		}
 		plans = append(plans, sectionRenderPlan{OutputPath: outputPath, Pages: chunk, Paginator: pager})
+		if i == 1 {
+			aliasPath := filepath.Join(strings.TrimPrefix(sec.Path, "/"), paginatePath, "1", "index.html")
+			plans = append(plans, sectionRenderPlan{OutputPath: aliasPath, Pages: chunk, Paginator: pager})
+		}
 	}
 
 	return plans
@@ -547,13 +552,38 @@ func sectionPagerPermalink(sectionPath, sectionPermalink, paginatePath string, i
 
 func (s *Site) renderTaxonomies(liveReloadURL string) error {
 	for _, tax := range s.Library.Taxonomies {
+		terms := make([]map[string]any, 0, len(tax.Terms))
+		for termName, term := range tax.Terms {
+			pathSlug := slugifyURLSegment(termName)
+			terms = append(terms, map[string]any{
+				"name":      termName,
+				"slug":      pathSlug,
+				"path":      "/" + slugifyURLSegment(tax.Name) + "/" + pathSlug + "/",
+				"permalink": strings.TrimRight(s.Config.BaseURL, "/") + "/" + slugifyURLSegment(tax.Name) + "/" + pathSlug + "/",
+				"pages":     len(term.Pages),
+			})
+		}
+		sort.SliceStable(terms, func(i, j int) bool {
+			return terms[i]["name"].(string) < terms[j]["name"].(string)
+		})
+		ctxList := s.baseTemplateContext(s.Config.DefaultLanguage)
+		ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": terms}
+		listHTML, listErr := s.Templates.Render("taxonomy_list.html", ctxList)
+		if listErr != nil {
+			listHTML = "<html><body><h1>" + tax.Name + "</h1></body></html>"
+		}
+		listHTML = injectLiveReload(listHTML, liveReloadURL)
+		if err := s.writeOutput(filepath.Join(slugifyURLSegment(tax.Name), "index.html"), listHTML); err != nil {
+			return err
+		}
+
 		for termName, term := range tax.Terms {
 			entries := make([]map[string]any, 0, len(term.Pages))
 			for _, rel := range term.Pages {
 				pg := s.Library.Pages[rel]
 				entries = append(entries, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink})
 			}
-			pathSlug := strings.ReplaceAll(strings.ToLower(termName), " ", "-")
+			pathSlug := slugifyURLSegment(termName)
 			ctx := s.baseTemplateContext(s.Config.DefaultLanguage)
 			ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
 			html, err := s.Templates.Render("taxonomy_single.html", ctx)
@@ -561,8 +591,19 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 				html = "<html><body><h1>" + tax.Name + ": " + termName + "</h1></body></html>"
 			}
 			html = injectLiveReload(html, liveReloadURL)
-			if err := s.writeOutput(filepath.Join(tax.Name, pathSlug, "index.html"), html); err != nil {
+			taxPath := slugifyURLSegment(tax.Name)
+			if err := s.writeOutput(filepath.Join(taxPath, pathSlug, "index.html"), html); err != nil {
 				return err
+			}
+			if s.taxonomyFeedEnabled(tax.Name) {
+				feedCtx := map[string]any{"pages": entries, "config": map[string]any{"title": s.Config.Title}, "taxonomy": map[string]any{"name": tax.Name, "term": termName}}
+				atom, feedErr := s.Templates.Render("atom.xml", feedCtx)
+				if feedErr != nil {
+					atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+				}
+				if err := s.writeOutput(filepath.Join(taxPath, pathSlug, "atom.xml"), atom); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -590,18 +631,49 @@ func (s *Site) renderFeed() error {
 	sort.SliceStable(pages, func(i, j int) bool {
 		return pages[i]["permalink"].(string) < pages[j]["permalink"].(string)
 	})
-	content, err := s.Templates.Render("rss.xml", map[string]any{"pages": pages, "config": map[string]any{"title": s.Config.Title}})
-	if err != nil {
-		content = "<?xml version=\"1.0\"?><rss version=\"2.0\"></rss>"
-	}
-	if err := s.writeOutput("rss.xml", content); err != nil {
-		return err
-	}
 	atom, err := s.Templates.Render("atom.xml", map[string]any{"pages": pages, "config": map[string]any{"title": s.Config.Title}})
 	if err != nil {
 		atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
 	}
-	return s.writeOutput("atom.xml", atom)
+	if err := s.writeOutput("atom.xml", atom); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Site) taxonomyFeedEnabled(name string) bool {
+	for _, tx := range s.Config.Taxonomies {
+		if tx.Name == name {
+			return tx.Feed
+		}
+	}
+	return false
+}
+
+func slugifyURLSegment(in string) string {
+	in = strings.TrimSpace(strings.ToLower(in))
+	if in == "" {
+		return ""
+	}
+	var b strings.Builder
+	prevDash := false
+	for _, r := range in {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+			prevDash = false
+		case r == '_' || r == '-' || unicode.IsSpace(r):
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "item"
+	}
+	return out
 }
 
 func (s *Site) render404(liveReloadURL string) error {
