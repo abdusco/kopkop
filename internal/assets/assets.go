@@ -64,7 +64,10 @@ func copyFile(src string, dst string) error {
 }
 
 func CompileSass(basePath string, outputPath string) error {
-	sassDir := filepath.Join(basePath, "sass")
+	return CompileSassDir(filepath.Join(basePath, "sass"), outputPath)
+}
+
+func CompileSassDir(sassDir string, outputPath string) error {
 	if _, err := os.Stat(sassDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil

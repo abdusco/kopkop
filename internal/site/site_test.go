@@ -39,3 +39,11 @@ generate_robots_txt = true
 	_, err = os.Stat(filepath.Join(root, "public", "sitemap.xml"))
 	require.NoError(t, err)
 }
+
+func TestMinifyHTML(t *testing.T) {
+	t.Parallel()
+
+	in := "<html>\n  <body>  <h1> Hi </h1> </body>\n</html>"
+	out := minifyHTML(in)
+	require.Equal(t, "<html><body><h1> Hi </h1></body></html>", out)
+}

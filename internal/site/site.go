@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -45,6 +46,8 @@ type Site struct {
 	BuildMode     BuildMode
 	MemoryContent map[string]string
 }
+
+var htmlSpaceRe = regexp.MustCompile(`\s+`)
 
 func New(basePath string, configPath string) (*Site, error) {
 	cfg, err := config.FromFile(configPath)
@@ -114,6 +117,12 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if s.Config.CompileSass {
+		if s.Config.Theme != "" {
+			themeSass := filepath.Join(s.BasePath, "themes", s.Config.Theme, "sass")
+			if err := assets.CompileSassDir(themeSass, s.OutputPath); err != nil {
+				return err
+			}
+		}
 		if err := assets.CompileSass(s.BasePath, s.OutputPath); err != nil {
 			return err
 		}
@@ -477,6 +486,10 @@ func (s *Site) writeOutput(rel string, content string) error {
 		rel = strings.TrimPrefix(rel, "/")
 	}
 
+	if s.Config.MinifyHTML && strings.HasSuffix(strings.ToLower(rel), ".html") {
+		content = minifyHTML(content)
+	}
+
 	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
 		s.MemoryContent[filepath.ToSlash(rel)] = content
 	}
@@ -490,6 +503,13 @@ func (s *Site) writeOutput(rel string, content string) error {
 		}
 	}
 	return nil
+}
+
+func minifyHTML(in string) string {
+	trimmed := strings.TrimSpace(in)
+	trimmed = htmlSpaceRe.ReplaceAllString(trimmed, " ")
+	trimmed = strings.ReplaceAll(trimmed, "> <", "><")
+	return trimmed
 }
 
 func injectLiveReload(html string, reloadURL string) string {
