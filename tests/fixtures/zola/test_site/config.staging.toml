@@ -1,0 +1,10 @@
+title = "My site"
+base_url = "https://staging.com"
+theme = "sample"
+
+[markdown.highlighting]
+theme = "github-dark"
+
+[extra.author]
+name = "Vincent Prouillet"
+
