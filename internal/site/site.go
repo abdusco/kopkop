@@ -509,7 +509,10 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 	pages := make([]map[string]any, 0, len(sec.Pages))
 	for _, p := range sec.Pages {
 		pg := s.Library.Pages[p]
-		pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
+		if pg == nil {
+			continue
+		}
+		pages = append(pages, s.pageView(p, pg))
 	}
 	return pages
 }
@@ -619,7 +622,7 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 				if termsByLang[pg.Lang] == nil {
 					termsByLang[pg.Lang] = map[string][]map[string]any{}
 				}
-				termsByLang[pg.Lang][termName] = append(termsByLang[pg.Lang][termName], map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
+				termsByLang[pg.Lang][termName] = append(termsByLang[pg.Lang][termName], s.pageView(rel, pg))
 			}
 		}
 
