@@ -14,6 +14,7 @@ import (
 var wsRe = regexp.MustCompile(`\s+`)
 var translatedInMarkerRe = regexp.MustCompile(`Translated in [^:]+:`)
 var permalinkRe = regexp.MustCompile(`"(https?://[^"\\]+)"`)
+var articleBlockRe = regexp.MustCompile(`(?s)<article>.*?</article>`)
 
 func NormalizeByExt(ext string, in []byte) ([]byte, error) {
 	switch strings.ToLower(ext) {
@@ -44,11 +45,39 @@ func normalizeJSON(in []byte) ([]byte, error) {
 
 func normalizeHTML(in []byte) []byte {
 	s := string(in)
+	s = normalizeListPostsBlocks(s)
 	s = normalizeTranslationBlocks(s)
 	s = strings.TrimSpace(s)
 	s = wsRe.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, "> <", "><")
 	return []byte(s)
+}
+
+func normalizeListPostsBlocks(s string) string {
+	const startMarker = `<div class="list-posts">`
+	idx := 0
+	for {
+		startRel := strings.Index(s[idx:], startMarker)
+		if startRel == -1 {
+			return s
+		}
+		start := idx + startRel + len(startMarker)
+		endRel := strings.Index(s[start:], `</div>`)
+		if endRel == -1 {
+			return s
+		}
+		end := start + endRel
+		inner := s[start:end]
+		blocks := articleBlockRe.FindAllString(inner, -1)
+		if len(blocks) > 1 {
+			sort.Strings(blocks)
+			rebuilt := "\n" + strings.Join(blocks, "\n") + "\n"
+			s = s[:start] + rebuilt + s[end:]
+			idx = start + len(rebuilt)
+			continue
+		}
+		idx = end + len(`</div>`)
+	}
 }
 
 func normalizeTranslationBlocks(s string) string {
