@@ -1166,8 +1166,12 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang
 		}
 
 		authors := p.Meta.Authors
-		if len(authors) == 0 && strings.TrimSpace(s.Config.Author) != "" {
-			authors = []string{s.Config.Author}
+		if len(authors) == 0 {
+			if strings.TrimSpace(s.Config.Author) != "" {
+				authors = []string{s.Config.Author}
+			} else {
+				authors = []string{"Unknown"}
+			}
 		}
 		for _, author := range authors {
 			b.WriteString("        <author><name>")
@@ -1242,11 +1246,35 @@ func (s *Site) defaultSitemapXML() string {
 			}
 		}
 	}
+	for lang := range s.Config.Languages {
+		if lang == s.Config.DefaultLanguage {
+			continue
+		}
+		if _, ok := s.Library.Sections["_index."+lang+".md"]; ok {
+			continue
+		}
+		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/"] = struct{}{}
+	}
 	for _, tx := range s.Library.Taxonomies {
-		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(s.Config.DefaultLanguage, s.Config.DefaultLanguage, tx.Name, "")] = struct{}{}
-		for termName := range tx.Terms {
+		termsByLang := map[string]map[string]struct{}{}
+		for termName, term := range tx.Terms {
 			slug := slugifyURLSegment(termName)
-			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(s.Config.DefaultLanguage, s.Config.DefaultLanguage, tx.Name, slug)] = struct{}{}
+			for _, rel := range term.Pages {
+				pg := s.Library.Pages[rel]
+				if pg == nil {
+					continue
+				}
+				if termsByLang[pg.Lang] == nil {
+					termsByLang[pg.Lang] = map[string]struct{}{}
+				}
+				termsByLang[pg.Lang][slug] = struct{}{}
+			}
+		}
+		for lang, slugs := range termsByLang {
+			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tx.Name, "")] = struct{}{}
+			for slug := range slugs {
+				urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tx.Name, slug)] = struct{}{}
+			}
 		}
 	}
 
@@ -1277,13 +1305,15 @@ func (s *Site) defaultSitemapXML() string {
 
 func (s *Site) renderFeed() error {
 	pages := make([]map[string]any, 0, len(s.Library.Pages))
-	allPages := make([]*content.Page, 0, len(s.Library.Pages))
+	defaultLangPages := make([]*content.Page, 0, len(s.Library.Pages))
 	pagesByLang := map[string][]map[string]any{}
 	rawPagesByLang := map[string][]*content.Page{}
 	for _, p := range s.Library.Pages {
 		entry := map[string]any{"title": p.Meta.Title, "permalink": p.Permalink}
 		pages = append(pages, entry)
-		allPages = append(allPages, p)
+		if p.Lang == s.Config.DefaultLanguage {
+			defaultLangPages = append(defaultLangPages, p)
+		}
 		pagesByLang[p.Lang] = append(pagesByLang[p.Lang], entry)
 		rawPagesByLang[p.Lang] = append(rawPagesByLang[p.Lang], p)
 	}
@@ -1295,7 +1325,7 @@ func (s *Site) renderFeed() error {
 			return pagesByLang[lang][i]["permalink"].(string) < pagesByLang[lang][j]["permalink"].(string)
 		})
 	}
-	atom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, s.Config.DefaultLanguage, allPages)
+	atom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, s.Config.DefaultLanguage, defaultLangPages)
 	if err := s.writeOutput("atom.xml", atom); err != nil {
 		return err
 	}
