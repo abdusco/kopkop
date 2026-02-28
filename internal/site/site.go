@@ -441,6 +441,8 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		}
 		if !strings.Contains(repl, "<") {
 			repl = repl + "\n\n"
+		} else {
+			repl = strings.TrimRight(repl, "\n") + "\n"
 		}
 		rendered.Body = strings.Replace(rendered.Body, shortcode.Placeholder, repl, 1)
 	}
@@ -725,9 +727,6 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 			}
 			if di == nil && dj != nil {
 				return false
-			}
-			if entries[i].pg.Meta.Weight != entries[j].pg.Meta.Weight {
-				return entries[i].pg.Meta.Weight < entries[j].pg.Meta.Weight
 			}
 			if entries[i].pg.Meta.Title != entries[j].pg.Meta.Title {
 				return entries[i].pg.Meta.Title < entries[j].pg.Meta.Title
@@ -1018,10 +1017,12 @@ func (s *Site) sortedPagesForFeed(pages []*content.Page) []*content.Page {
 		if di == nil && dj != nil {
 			return false
 		}
-		if out[i].Meta.Title != out[j].Meta.Title {
-			return out[i].Meta.Title < out[j].Meta.Title
+		ti := strings.TrimSpace(out[i].Meta.Title)
+		tj := strings.TrimSpace(out[j].Meta.Title)
+		if (ti == "") != (tj == "") {
+			return ti == ""
 		}
-		return out[i].Permalink < out[j].Permalink
+		return out[i].RelativePath < out[j].RelativePath
 	})
 	return out
 }
@@ -1145,6 +1146,17 @@ func (s *Site) defaultSitemapXML() string {
 				paginatePath := strings.Trim(sec.Meta.PaginatePath, "/")
 				if paginatePath == "" {
 					paginatePath = "page"
+				}
+				if n > 1 {
+					base := strings.TrimRight(sec.Permalink, "/")
+					if base == "" {
+						base = "/"
+					}
+					if base == "/" {
+						urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"+paginatePath+"/1/"] = struct{}{}
+					} else {
+						urlsSet[base+"/"+paginatePath+"/1/"] = struct{}{}
+					}
 				}
 				for i := 1; i <= n; i++ {
 					urlsSet[sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, i)] = struct{}{}
