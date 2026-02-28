@@ -57,6 +57,8 @@ func normalizeXML(in []byte) ([]byte, error) {
 			return nil, fmt.Errorf("normalize xml: %w", err)
 		}
 		switch t := tok.(type) {
+		case xml.ProcInst, xml.Directive:
+			continue
 		case xml.CharData:
 			trimmed := strings.TrimSpace(string(t))
 			if trimmed == "" {
