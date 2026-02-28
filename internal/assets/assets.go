@@ -7,8 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var whitespaceRe = regexp.MustCompile(`\s+`)
 
 func CleanOutput(path string) error {
 	if _, err := os.Stat(path); err == nil {
@@ -110,10 +113,118 @@ func CompileSassDir(sassDir string, outputPath string) error {
 			return nil
 		}
 
-		// Fallback: copy raw file into css output so builds stay usable.
-		if err := copyFile(path, dst); err != nil {
+		compiled, compileErr := compileSassFallback(path, sassDir)
+		if compileErr != nil {
+			return compileErr
+		}
+		if err := os.WriteFile(dst, []byte(compiled), 0o644); err != nil {
 			return err
 		}
 		return nil
 	})
+}
+
+func compileSassFallback(path string, sassRoot string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".scss" {
+		s := resolveScssImports(string(b), filepath.Dir(path), sassRoot)
+		return flattenScss(s), nil
+	}
+	trimmed := strings.TrimSpace(string(b))
+	if trimmed == "" {
+		return "", nil
+	}
+	return strings.ReplaceAll(trimmed, "\n", " "), nil
+}
+
+func resolveScssImports(src string, dir string, sassRoot string) string {
+	lines := strings.Split(src, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "@import ") && strings.HasSuffix(trim, ";") {
+			name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trim, "@import "), ";"))
+			name = strings.Trim(name, `"'`)
+			candidates := []string{
+				filepath.Join(dir, "_"+name+".scss"),
+				filepath.Join(dir, name+".scss"),
+				filepath.Join(sassRoot, "_"+name+".scss"),
+				filepath.Join(sassRoot, name+".scss"),
+			}
+			for _, c := range candidates {
+				if b, err := os.ReadFile(c); err == nil {
+					out = append(out, resolveScssImports(string(b), filepath.Dir(c), sassRoot))
+					goto nextLine
+				}
+			}
+		}
+		out = append(out, line)
+	nextLine:
+	}
+	return strings.Join(out, "\n")
+}
+
+func flattenScss(src string) string {
+	stack := []string{}
+	rules := []string{}
+	token := strings.Builder{}
+
+	emitDecl := func(selector string, decl string) {
+		decl = strings.TrimSpace(decl)
+		if decl == "" {
+			return
+		}
+		parts := strings.SplitN(decl, ":", 2)
+		if len(parts) != 2 {
+			return
+		}
+		left := strings.TrimSpace(parts[0])
+		right := strings.TrimSpace(parts[1])
+		selector = strings.TrimSpace(selector)
+		if selector == "" {
+			return
+		}
+		rules = append(rules, selector+"{"+left+":"+right+"}")
+	}
+
+	for _, r := range src {
+		switch r {
+		case '{':
+			sel := strings.TrimSpace(token.String())
+			token.Reset()
+			parent := ""
+			if len(stack) > 0 {
+				parent = strings.TrimSpace(stack[len(stack)-1])
+			}
+			if parent != "" {
+				sel = strings.TrimSpace(parent + " " + sel)
+			}
+			stack = append(stack, sel)
+		case ';':
+			if len(stack) > 0 {
+				emitDecl(stack[len(stack)-1], token.String())
+			}
+			token.Reset()
+		case '}':
+			token.Reset()
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		default:
+			token.WriteRune(r)
+		}
+	}
+
+	out := strings.Join(rules, "")
+	out = whitespaceRe.ReplaceAllString(out, " ")
+	out = strings.ReplaceAll(out, "{ ", "{")
+	out = strings.ReplaceAll(out, " }", "}")
+	out = strings.ReplaceAll(out, "; ", ";")
+	out = strings.ReplaceAll(out, " :", ":")
+	out = strings.ReplaceAll(out, ": ", ":")
+	return strings.TrimSpace(out)
 }

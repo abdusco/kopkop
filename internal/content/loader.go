@@ -220,6 +220,9 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 
 func attachPagesToSections(lib *Library) {
 	for rel, p := range lib.Pages {
+		if p.Meta.Render != nil && !*p.Meta.Render {
+			continue
+		}
 		if sec, ok := lib.Sections[p.ParentSection]; ok {
 			sec.Pages = append(sec.Pages, rel)
 		}
@@ -289,6 +292,9 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 		lib.Taxonomies[tax.Name] = &Taxonomy{Name: tax.Name, Terms: map[string]*TaxonomyTerm{}}
 	}
 	for rel, p := range lib.Pages {
+		if p.Meta.Render != nil && !*p.Meta.Render {
+			continue
+		}
 		for taxName, values := range p.Meta.Taxonomies {
 			tax, ok := lib.Taxonomies[taxName]
 			if !ok {

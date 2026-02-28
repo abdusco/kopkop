@@ -2,6 +2,7 @@ package templates
 
 import (
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
 	"io/fs"
@@ -233,7 +234,7 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 			candidate := filepath.Join(basePath, "static", local)
 			if b, err := os.ReadFile(candidate); err == nil {
 				h := sha256.Sum256(b)
-				p = p + "?h=" + fmt.Sprintf("%x", h[:8])
+				p = p + "?h=" + fmt.Sprintf("%x", h[:10])
 			}
 		}
 		if baseURL != "" {
@@ -418,7 +419,7 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 				}
 			}
 		}
-		sum := sha256.Sum256(data)
+		sum := sha512.Sum384(data)
 		if base64Out {
 			return value.FromString(base64.StdEncoding.EncodeToString(sum[:])), nil
 		}

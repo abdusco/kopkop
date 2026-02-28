@@ -10,6 +10,17 @@ func BuiltinTemplates() map[string]string {
 Allow: /
 Sitemap: {{ config.base_url }}/sitemap.xml
 `,
-		"__zola_builtins/internal/alias.html": `<html><head><meta http-equiv="refresh" content="0; url={{ url }}"></head><body><a href="{{ url }}">Moved</a></body></html>`,
+		"__zola_builtins/internal/alias.html": `<!doctype html>
+<meta charset="utf-8">
+<title>Redirect</title>
+<script>
+  const target = "{{ url | safe }}";
+  const hash = window.location.hash || "";
+  window.location.replace(target + hash);
+</script>
+<noscript>
+  <meta http-equiv="refresh" content="0; url={{ url | safe }}">
+</noscript>
+<p><a href="{{ url | safe }}">Click here</a> to be redirected.</p>`,
 	}
 }

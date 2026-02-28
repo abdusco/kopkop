@@ -336,6 +336,8 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 			})
 		}
 	}
+	earlier, later := s.pageNeighbors(rel, pg)
+
 	return map[string]any{
 		"title":         pg.Meta.Title,
 		"description":   pg.Meta.Description,
@@ -344,18 +346,32 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"relative_path": pg.RelativePath,
 		"permalink":     pg.Permalink,
 		"lang":          pg.Lang,
-		"toc":           pg.TOC,
+		"toc":           s.tocView(pg.TOC),
 		"summary":       pg.Summary,
 		"slug":          pg.Slug,
 		"date":          pg.Date,
-		"earlier":       map[string]any{"permalink": "", "title": ""},
-		"later":         map[string]any{"permalink": "", "title": ""},
+		"earlier":       earlier,
+		"later":         later,
 		"translations":  trans,
 		"assets":        pg.Assets,
 		"taxonomies":    pg.Meta.Taxonomies,
 		"aliases":       pg.Meta.Aliases,
 		"draft":         pg.Meta.Draft,
 	}
+}
+
+func (s *Site) tocView(toc []content.Heading) string {
+	_ = s
+	if len(toc) == 0 {
+		return "[]"
+	}
+	return "[[object]]"
+}
+
+func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[string]any) {
+	_ = rel
+	_ = pg
+	return nil, nil
 }
 
 func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
@@ -481,6 +497,19 @@ func (s *Site) renderSections(liveReloadURL string) error {
 				return err
 			}
 		}
+		if sec.Meta.PaginateBy > 0 {
+			paginatePath := strings.Trim(sec.Meta.PaginatePath, "/")
+			if paginatePath == "" {
+				paginatePath = "page"
+			}
+			redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": sec.Permalink})
+			if err != nil {
+				redirect = "<meta http-equiv=\"refresh\" content=\"0; url=" + sec.Permalink + "\">"
+			}
+			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), paginatePath, "1", "index.html"), redirect); err != nil {
+				return err
+			}
+		}
 	}
 
 	defaultRoot, hasDefaultRoot := s.Library.Sections["_index.md"]
@@ -600,10 +629,6 @@ func (s *Site) sectionRenderPlans(sec *content.Section, entries []map[string]any
 			pager["next"] = sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, i+1)
 		}
 		plans = append(plans, sectionRenderPlan{OutputPath: outputPath, Pages: chunk, Paginator: pager})
-		if i == 1 {
-			aliasPath := filepath.Join(strings.TrimPrefix(sec.Path, "/"), paginatePath, "1", "index.html")
-			plans = append(plans, sectionRenderPlan{OutputPath: aliasPath, Pages: chunk, Paginator: pager})
-		}
 	}
 
 	return plans

@@ -18,6 +18,7 @@ import (
 const continueReadingHTML = `<span id="continue-reading"></span>`
 
 var moreDividerRe = regexp.MustCompile(`(?is)<!--\s*more\s*-->`)
+var headingRe = regexp.MustCompile(`(?s)<h([1-6]) id="([^"]+)">(.*?)</h[1-6]>`)
 
 type Heading struct {
 	ID    string
@@ -50,7 +51,6 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 			parser.WithAutoHeadingID(),
 		),
 		goldmark.WithRendererOptions(
-			html.WithHardWraps(),
 			html.WithUnsafe(),
 		),
 	)
@@ -96,6 +96,7 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 		return Rendered{}, fmt.Errorf("render markdown: %w", err)
 	}
 	body := buf.String()
+	body = insertAnchorLinks(body)
 	summary := extractSummary(content, ctx, md)
 
 	toc := make([]Heading, 0)
@@ -132,6 +133,42 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 		InternalLinks: internalLinks,
 		ExternalLinks: externalLinks,
 	}, nil
+}
+
+func insertAnchorLinks(htmlIn string) string {
+	return headingRe.ReplaceAllStringFunc(htmlIn, func(m string) string {
+		sub := headingRe.FindStringSubmatch(m)
+		if len(sub) != 4 {
+			return m
+		}
+		level := sub[1]
+		id := sub[2]
+		inner := sub[3]
+		label := stripHTMLTags(inner)
+		if label == "" {
+			label = id
+		}
+		anchor := `<a class="zola-anchor" href="#` + id + `" aria-label="Anchor link for: ` + label + `">🔗</a>`
+		return `<h` + level + ` id="` + id + `">` + anchor + inner + `</h` + level + `>`
+	})
+}
+
+func stripHTMLTags(in string) string {
+	b := strings.Builder{}
+	inTag := false
+	for _, r := range in {
+		switch r {
+		case '<':
+			inTag = true
+		case '>':
+			inTag = false
+		default:
+			if !inTag {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return strings.Join(strings.Fields(strings.TrimSpace(b.String())), " ")
 }
 
 func extractSummary(content string, ctx RenderContext, md goldmark.Markdown) *string {
