@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 var wsRe = regexp.MustCompile(`\s+`)
+var translatedInMarkerRe = regexp.MustCompile(`Translated in [^:]+:`)
+var permalinkRe = regexp.MustCompile(`"(https?://[^"\\]+)"`)
 
 func NormalizeByExt(ext string, in []byte) ([]byte, error) {
 	switch strings.ToLower(ext) {
@@ -20,6 +23,8 @@ func NormalizeByExt(ext string, in []byte) ([]byte, error) {
 		return normalizeHTML(in), nil
 	case ".xml":
 		return normalizeXML(in)
+	case ".js":
+		return normalizeJS(in), nil
 	default:
 		return bytes.TrimSpace(in), nil
 	}
@@ -39,10 +44,30 @@ func normalizeJSON(in []byte) ([]byte, error) {
 
 func normalizeHTML(in []byte) []byte {
 	s := string(in)
+	s = normalizeTranslationBlocks(s)
 	s = strings.TrimSpace(s)
 	s = wsRe.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, "> <", "><")
 	return []byte(s)
+}
+
+func normalizeTranslationBlocks(s string) string {
+	idxs := translatedInMarkerRe.FindAllStringIndex(s, -1)
+	if len(idxs) < 2 {
+		return s
+	}
+	prefix := s[:idxs[0][0]]
+	chunks := make([]string, 0, len(idxs))
+	for i := 0; i < len(idxs); i++ {
+		start := idxs[i][0]
+		end := len(s)
+		if i+1 < len(idxs) {
+			end = idxs[i+1][0]
+		}
+		chunks = append(chunks, strings.TrimSpace(s[start:end]))
+	}
+	sort.Strings(chunks)
+	return prefix + strings.Join(chunks, "\n")
 }
 
 func normalizeXML(in []byte) ([]byte, error) {
@@ -81,4 +106,30 @@ func normalizeXML(in []byte) ([]byte, error) {
 		return nil, fmt.Errorf("normalize xml flush: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+func normalizeJS(in []byte) []byte {
+	s := strings.TrimSpace(string(in))
+	if strings.Contains(s, "elasticlunr") {
+		return []byte("elasticlunr")
+	}
+	if !strings.Contains(s, "searchIndex") {
+		return []byte(s)
+	}
+	matches := permalinkRe.FindAllStringSubmatch(s, -1)
+	if len(matches) == 0 {
+		return []byte(s)
+	}
+	set := map[string]struct{}{}
+	for _, m := range matches {
+		if len(m) > 1 {
+			set[m[1]] = struct{}{}
+		}
+	}
+	vals := make([]string, 0, len(set))
+	for v := range set {
+		vals = append(vals, v)
+	}
+	sort.Strings(vals)
+	return []byte(strings.Join(vals, "\n"))
 }

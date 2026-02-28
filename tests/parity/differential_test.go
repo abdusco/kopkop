@@ -12,6 +12,7 @@ import (
 )
 
 type knownDiff struct {
+	Fixture string `yaml:"fixture"`
 	Pattern string `yaml:"pattern"`
 }
 
@@ -42,7 +43,7 @@ func TestGoVsZolaDifferential_Optional(t *testing.T) {
 			require.NoError(t, harness.BuildWithKopkop(root, filepath.Join(root, cfgName), goOut, false))
 			require.NoError(t, harness.BuildWithZola(zolaBin, root, cfgName, zolaOut, false))
 
-			ignore, err := loadKnownDiffIgnore(filepath.Join("known_diffs.yaml"))
+			ignore, err := loadKnownDiffIgnore(filepath.Join("known_diffs.yaml"), fixture)
 			require.NoError(t, err)
 
 			diffs, err := harness.CompareDirectories(goOut, zolaOut, ignore)
@@ -52,7 +53,7 @@ func TestGoVsZolaDifferential_Optional(t *testing.T) {
 	}
 }
 
-func loadKnownDiffIgnore(path string) ([]string, error) {
+func loadKnownDiffIgnore(path string, fixture string) ([]string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -63,7 +64,7 @@ func loadKnownDiffIgnore(path string) ([]string, error) {
 	}
 	out := make([]string, 0, len(items))
 	for _, it := range items {
-		if it.Pattern != "" {
+		if it.Pattern != "" && (it.Fixture == "" || it.Fixture == fixture) {
 			out = append(out, it.Pattern)
 		}
 	}

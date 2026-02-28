@@ -25,6 +25,7 @@ func BuildIndex(lib *content.Library, outputPath string, filename string) error 
 
 func BuildIndexForLanguages(lib *content.Library, outputPath string, filename string, enabledLangs map[string]bool) error {
 	byLang := map[string][]Entry{}
+	permalinkSeen := map[string]struct{}{}
 	paths := make([]string, 0, len(lib.Pages))
 	for p := range lib.Pages {
 		paths = append(paths, p)
@@ -46,6 +47,60 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 			Content:   stripTags(pg.Content),
 			Lang:      pg.Lang,
 		})
+		permalinkSeen[pg.Permalink] = struct{}{}
+	}
+
+	sectionPaths := make([]string, 0, len(lib.Sections))
+	for p := range lib.Sections {
+		sectionPaths = append(sectionPaths, p)
+	}
+	sort.Strings(sectionPaths)
+	for _, p := range sectionPaths {
+		sec := lib.Sections[p]
+		if len(enabledLangs) > 0 && !enabledLangs[sec.Lang] {
+			continue
+		}
+		if _, exists := permalinkSeen[sec.Permalink]; exists {
+			continue
+		}
+		byLang[sec.Lang] = append(byLang[sec.Lang], Entry{
+			Title:     sec.Meta.Title,
+			Permalink: sec.Permalink,
+			Summary:   "",
+			Content:   stripTags(sec.Content),
+			Lang:      sec.Lang,
+		})
+		permalinkSeen[sec.Permalink] = struct{}{}
+	}
+
+	if len(enabledLangs) > 0 {
+		defaultRoot := lib.Sections["_index.md"]
+		if defaultRoot != nil {
+			defaultLang := defaultRoot.Lang
+			base := strings.TrimRight(defaultRoot.Permalink, "/")
+			langs := make([]string, 0, len(enabledLangs))
+			for lang := range enabledLangs {
+				langs = append(langs, lang)
+			}
+			sort.Strings(langs)
+			for _, lang := range langs {
+				if !enabledLangs[lang] || lang == defaultLang {
+					continue
+				}
+				perm := base + "/" + lang + "/"
+				if _, exists := permalinkSeen[perm]; exists {
+					continue
+				}
+				byLang[lang] = append(byLang[lang], Entry{
+					Title:     "",
+					Permalink: perm,
+					Summary:   "",
+					Content:   "",
+					Lang:      lang,
+				})
+				permalinkSeen[perm] = struct{}{}
+			}
+		}
 	}
 
 	if len(byLang) <= 1 {
