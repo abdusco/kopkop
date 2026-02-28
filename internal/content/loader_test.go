@@ -217,3 +217,22 @@ func TestLoadLibrary_ColocatedAssetsDetectedForTranslatedIndex(t *testing.T) {
 	require.Len(t, pg.Assets, 1)
 	assert.Equal(t, "/fr/blog/with-assets/", pg.Path)
 }
+
+func TestLoadLibrary_ParsesFrontMatterWithUTF8BOM(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "hello.md"), []byte("\ufeff+++\ntitle='Hello'\n+++\nBody"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+	pg := lib.Pages["hello.md"]
+	require.NotNil(t, pg)
+	assert.Equal(t, "Hello", pg.Meta.Title)
+	assert.Equal(t, "Body", pg.RawContent)
+}

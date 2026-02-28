@@ -572,6 +572,7 @@ func findColocatedAssets(pageAbsPath string) ([]string, error) {
 }
 
 func parsePageFrontMatterOptional(relPath string, contentStr string) (PageFrontMatter, string, error) {
+	contentStr = strings.TrimPrefix(contentStr, "\ufeff")
 	meta, body, err := frontmatter.ParseFrontMatter[PageFrontMatter](relPath, contentStr)
 	if err == nil {
 		return meta, body, nil
@@ -584,6 +585,7 @@ func parsePageFrontMatterOptional(relPath string, contentStr string) (PageFrontM
 }
 
 func parseSectionFrontMatterOptional(relPath string, contentStr string) (SectionFrontMatter, string, error) {
+	contentStr = strings.TrimPrefix(contentStr, "\ufeff")
 	meta, body, err := frontmatter.ParseFrontMatter[SectionFrontMatter](relPath, contentStr)
 	if err == nil {
 		return meta, body, nil

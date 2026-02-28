@@ -148,6 +148,7 @@ func insertAnchorLinks(htmlIn string) string {
 		if label == "" {
 			label = id
 		}
+		label = strings.ToLower(label)
 		anchor := `<a class="zola-anchor" href="#` + id + `" aria-label="Anchor link for: ` + label + `">🔗</a>`
 		return `<h` + level + ` id="` + id + `">` + anchor + inner + `</h` + level + `>`
 	})

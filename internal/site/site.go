@@ -968,6 +968,13 @@ func (s *Site) writeOutput(rel string, content string) error {
 		content = minifyHTML(content)
 	}
 
+	lowerRel := strings.ToLower(rel)
+	if strings.HasSuffix(lowerRel, ".html") || strings.HasSuffix(lowerRel, ".xml") || strings.HasSuffix(lowerRel, ".txt") || strings.HasSuffix(lowerRel, ".css") || strings.HasSuffix(lowerRel, ".js") {
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+	}
+
 	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
 		s.MemoryContent[filepath.ToSlash(rel)] = content
 	}
