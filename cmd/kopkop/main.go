@@ -207,15 +207,24 @@ func runCheck(args []string) error {
 	}
 	results := s.CheckExternalLinks()
 	failed := 0
+	warnOnly := s.Config.LinkChecker.InternalLevel == config.LinkCheckerWarn
 	for _, r := range results {
 		if !r.OK {
 			failed++
-			log.Printf("[BAD] %s: %s", r.URL, r.Error)
+			if warnOnly {
+				log.Printf("[WARN] %s: %s", r.URL, r.Error)
+			} else {
+				log.Printf("[BAD] %s: %s", r.URL, r.Error)
+			}
 		}
 	}
-	if failed > 0 {
+	if failed > 0 && !warnOnly {
 		return fmt.Errorf("%d broken external links", failed)
 	}
-	log.Printf("all external links OK (%d checked)", len(results))
+	if failed == 0 {
+		log.Printf("all external links OK (%d checked)", len(results))
+	} else {
+		log.Printf("link check warnings: %d broken links (%d checked)", failed, len(results))
+	}
 	return nil
 }

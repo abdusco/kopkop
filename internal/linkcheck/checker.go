@@ -1,9 +1,12 @@
 package linkcheck
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -29,15 +32,24 @@ func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) []Result {
 
 	client := &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second}
 	cache := map[string]Result{}
+	if cfg.UseCache {
+		cache = loadCache(cfg.CacheFile)
+	}
 	var mu sync.Mutex
 	results := []Result{}
 
 	for link := range unique {
-		res := checkURL(client, link, cfg)
+		res, ok := cache[link]
+		if !ok {
+			res = checkURL(client, link, cfg)
+		}
 		mu.Lock()
 		cache[link] = res
 		results = append(results, res)
 		mu.Unlock()
+	}
+	if cfg.UseCache {
+		_ = saveCache(cfg.CacheFile, cache)
 	}
 
 	return results
@@ -83,4 +95,33 @@ func checkURL(client *http.Client, link string, cfg config.LinkChecker) Result {
 	}
 
 	return res
+}
+
+func loadCache(path string) map[string]Result {
+	if strings.TrimSpace(path) == "" {
+		return map[string]Result{}
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]Result{}
+	}
+	out := map[string]Result{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return map[string]Result{}
+	}
+	return out
+}
+
+func saveCache(path string, data map[string]Result) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
 }

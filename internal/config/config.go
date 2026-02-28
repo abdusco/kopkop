@@ -22,6 +22,8 @@ type LinkChecker struct {
 	InternalLevel      LinkCheckerLevel `toml:"internal_level"`
 	SkipAnchorPrefixes []string         `toml:"skip_anchor_prefixes"`
 	TimeoutSeconds     int              `toml:"timeout_seconds"`
+	CacheFile          string           `toml:"cache_file"`
+	UseCache           bool             `toml:"use_cache"`
 }
 
 type Markdown struct {
@@ -90,6 +92,8 @@ func Default() Config {
 			InternalLevel:      LinkCheckerError,
 			SkipAnchorPrefixes: []string{},
 			TimeoutSeconds:     10,
+			CacheFile:          ".kopkop-linkcheck-cache.json",
+			UseCache:           true,
 		},
 		Languages:      map[string]LanguageOptions{},
 		IgnoredContent: []string{},
