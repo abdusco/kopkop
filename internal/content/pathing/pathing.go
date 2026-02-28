@@ -88,7 +88,11 @@ func ComputePagePath(metaPath string, slug string, components []string, fileName
 			p = slug
 		}
 	} else {
-		p = fmt.Sprintf("%s/%s", strings.Join(components, "/"), slug)
+		if slug == "" {
+			p = strings.Join(components, "/")
+		} else {
+			p = fmt.Sprintf("%s/%s", strings.Join(components, "/"), slug)
+		}
 	}
 
 	if lang != "" && defaultLang != "" && lang != defaultLang {

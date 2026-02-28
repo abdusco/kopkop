@@ -15,12 +15,15 @@ type PageFrontMatter struct {
 }
 
 type SectionFrontMatter struct {
-	Title        string   `toml:"title" yaml:"title"`
-	Description  string   `toml:"description" yaml:"description"`
-	Template     string   `toml:"template" yaml:"template"`
-	PageTemplate string   `toml:"page_template" yaml:"page_template"`
-	Aliases      []string `toml:"aliases" yaml:"aliases"`
-	SortBy       string   `toml:"sort_by" yaml:"sort_by"`
+	Title            string   `toml:"title" yaml:"title"`
+	Description      string   `toml:"description" yaml:"description"`
+	Template         string   `toml:"template" yaml:"template"`
+	PageTemplate     string   `toml:"page_template" yaml:"page_template"`
+	Aliases          []string `toml:"aliases" yaml:"aliases"`
+	SortBy           string   `toml:"sort_by" yaml:"sort_by"`
+	PaginateBy       int      `toml:"paginate_by" yaml:"paginate_by"`
+	PaginatePath     string   `toml:"paginate_path" yaml:"paginate_path"`
+	PaginateReversed bool     `toml:"paginate_reversed" yaml:"paginate_reversed"`
 }
 
 type Page struct {

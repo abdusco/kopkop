@@ -93,7 +93,7 @@ func CompileSassDir(sassDir string, outputPath string) error {
 			continue
 		}
 		src := filepath.Join(sassDir, name)
-		dst := filepath.Join(outputPath, "static", strings.TrimSuffix(name, ext)+".css")
+		dst := filepath.Join(outputPath, strings.TrimSuffix(name, ext)+".css")
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}

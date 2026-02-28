@@ -92,6 +92,91 @@ generate_robots_txt = true
 	}
 }
 
+func TestSiteBuild_SectionPagination(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+compile_sass = false
+generate_sitemap = false
+generate_feeds = false
+build_search_index = false
+generate_robots_txt = false
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\npaginate_by=2\npaginate_path='p'\n+++\nWelcome"), 0o644))
+	for i := 1; i <= 5; i++ {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "content", "post-"+itoa(i)+".md"), []byte("+++\ntitle='Post "+itoa(i)+"'\n+++\nHello world"), 0o644))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ paginator.current_index }}/{{ paginator.number_pagers }}|{% for p in section.pages %}{{ p.title }};{% endfor %}</body></html>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	_, err = os.Stat(filepath.Join(root, "public", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "p", "2", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "p", "3", "index.html"))
+	require.NoError(t, err)
+
+	first, err := os.ReadFile(filepath.Join(root, "public", "index.html"))
+	require.NoError(t, err)
+	require.Contains(t, string(first), "1/3")
+	require.Contains(t, string(first), "Post 1;")
+	require.Contains(t, string(first), "Post 2;")
+
+	third, err := os.ReadFile(filepath.Join(root, "public", "p", "3", "index.html"))
+	require.NoError(t, err)
+	require.Contains(t, string(third), "3/3")
+	require.Contains(t, string(third), "Post 5;")
+}
+
+func TestSiteBuild_SectionPaginationReversedDefaultPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+compile_sass = false
+generate_sitemap = false
+generate_feeds = false
+build_search_index = false
+generate_robots_txt = false
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\npaginate_by=2\npaginate_reversed=true\n+++\nWelcome"), 0o644))
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "content", "post-"+itoa(i)+".md"), []byte("+++\ntitle='Post "+itoa(i)+"'\n+++\nHello world"), 0o644))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{% for p in section.pages %}{{ p.title }};{% endfor %}</body></html>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	_, err = os.Stat(filepath.Join(root, "public", "page", "2", "index.html"))
+	require.NoError(t, err)
+
+	first, err := os.ReadFile(filepath.Join(root, "public", "index.html"))
+	require.NoError(t, err)
+	require.Contains(t, string(first), "Post 3;")
+	require.Contains(t, string(first), "Post 2;")
+	require.NotContains(t, string(first), "Post 1;")
+}
+
 func collectFiles(t *testing.T, root string) []string {
 	t.Helper()
 	files := []string{}

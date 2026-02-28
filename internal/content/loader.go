@@ -127,13 +127,18 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	}
 
 	lang := inferLangFromFilename(relPath, cfg.DefaultLanguage)
-	fileName := baseNameForSlug(relPath, lang, cfg.DefaultLanguage)
-	if fileName == "index" {
-		fileName = filepath.Base(filepath.Dir(relPath))
+	baseName := baseNameForSlug(relPath, lang, cfg.DefaultLanguage)
+	filePathForSlug := baseName
+	if baseName == "index" {
+		filePathForSlug = filepath.Base(filepath.Dir(relPath))
 	}
 	components := splitComponents(filepath.Dir(relPath))
-	slug, extractedDate := pathing.ComputePageSlug(meta.Slug, fileName, cfg.PathsKeepDates)
-	p := pathing.ComputePagePath(meta.Path, slug, components, strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)), false, lang, cfg.DefaultLanguage)
+	slug, extractedDate := pathing.ComputePageSlug(meta.Slug, filePathForSlug, cfg.PathsKeepDates)
+	hasColocated, _ := hasColocatedAssets(absPath)
+	if baseName == "index" && !hasColocated {
+		slug = ""
+	}
+	p := pathing.ComputePagePath(meta.Path, slug, components, strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)), hasColocated, lang, cfg.DefaultLanguage)
 	permalink := pathing.MakePermalink(cfg.BaseURL, p)
 
 	page := &Page{
@@ -161,6 +166,14 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	page.Assets = assets
 
 	return page, nil
+}
+
+func hasColocatedAssets(pageAbsPath string) (bool, error) {
+	assets, err := findColocatedAssets(pageAbsPath)
+	if err != nil {
+		return false, err
+	}
+	return len(assets) > 0, nil
 }
 
 func parseSection(absPath, relPath, content string, cfg config.Config) (*Section, error) {

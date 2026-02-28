@@ -18,5 +18,5 @@ func TestCompileSassDir_FallbackCopiesWhenSassBinaryMissingOrUnavailable(t *test
 	require.NoError(t, os.WriteFile(filepath.Join(sassDir, "site.scss"), []byte("$x: red; body { color: $x; }"), 0o644))
 
 	require.NoError(t, CompileSassDir(sassDir, out))
-	require.FileExists(t, filepath.Join(out, "static", "site.css"))
+	require.FileExists(t, filepath.Join(out, "site.css"))
 }

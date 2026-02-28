@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -408,32 +409,140 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		if sec.Meta.Template != "" {
 			tpl = sec.Meta.Template
 		}
-		pages := make([]map[string]any, 0, len(sec.Pages))
-		for _, p := range sec.Pages {
-			pg := s.Library.Pages[p]
-			pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
-		}
-		ctx := s.baseTemplateContext(sec.Lang)
-		ctx["section"] = map[string]any{
-			"title":         sec.Meta.Title,
-			"description":   sec.Meta.Description,
-			"path":          sec.Path,
-			"relative_path": sec.RelativePath,
-			"permalink":     sec.Permalink,
-			"pages":         pages,
-			"subsections":   sec.Subsections,
-			"content":       sec.Content,
-		}
-		html, err := s.Templates.Render(tpl, ctx)
-		if err != nil {
-			html = "<html><body><h1>" + sec.Meta.Title + "</h1></body></html>"
-		}
-		html = injectLiveReload(html, liveReloadURL)
-		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), "index.html"), html); err != nil {
-			return err
+		entries := s.sectionPageEntries(sec)
+		for _, plan := range s.sectionRenderPlans(sec, entries) {
+			ctx := s.baseTemplateContext(sec.Lang)
+			ctx["section"] = map[string]any{
+				"title":             sec.Meta.Title,
+				"description":       sec.Meta.Description,
+				"path":              sec.Path,
+				"relative_path":     sec.RelativePath,
+				"permalink":         sec.Permalink,
+				"pages":             plan.Pages,
+				"subsections":       sec.Subsections,
+				"content":           sec.Content,
+				"paginate_by":       sec.Meta.PaginateBy,
+				"paginate_path":     sec.Meta.PaginatePath,
+				"paginate_reversed": sec.Meta.PaginateReversed,
+			}
+			if plan.Paginator != nil {
+				ctx["paginator"] = plan.Paginator
+			}
+			html, err := s.Templates.Render(tpl, ctx)
+			if err != nil {
+				html = "<html><body><h1>" + sec.Meta.Title + "</h1></body></html>"
+			}
+			html = injectLiveReload(html, liveReloadURL)
+			if err := s.writeOutput(plan.OutputPath, html); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+type sectionRenderPlan struct {
+	OutputPath string
+	Pages      []map[string]any
+	Paginator  map[string]any
+}
+
+func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
+	pages := make([]map[string]any, 0, len(sec.Pages))
+	for _, p := range sec.Pages {
+		pg := s.Library.Pages[p]
+		pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
+	}
+	return pages
+}
+
+func (s *Site) sectionRenderPlans(sec *content.Section, entries []map[string]any) []sectionRenderPlan {
+	baseRel := strings.TrimPrefix(sec.Path, "/")
+	out := []sectionRenderPlan{{
+		OutputPath: filepath.Join(baseRel, "index.html"),
+		Pages:      entries,
+	}}
+
+	perPage := sec.Meta.PaginateBy
+	if perPage <= 0 {
+		return out
+	}
+
+	reordered := make([]map[string]any, 0, len(entries))
+	if sec.Meta.PaginateReversed {
+		for i := len(entries) - 1; i >= 0; i-- {
+			reordered = append(reordered, entries[i])
+		}
+	} else {
+		reordered = append(reordered, entries...)
+	}
+
+	pagesCount := len(reordered)
+	numberPagers := 1
+	if pagesCount > 0 {
+		numberPagers = (pagesCount + perPage - 1) / perPage
+	}
+	paginatePath := strings.Trim(sec.Meta.PaginatePath, "/")
+	if paginatePath == "" {
+		paginatePath = "page"
+	}
+	plans := make([]sectionRenderPlan, 0, numberPagers)
+	baseURL := strings.TrimSuffix(sec.Permalink, "/")
+	if baseURL == "" {
+		baseURL = "/"
+	}
+
+	for i := 1; i <= numberPagers; i++ {
+		start := (i - 1) * perPage
+		end := start + perPage
+		if end > pagesCount {
+			end = pagesCount
+		}
+		chunk := reordered[start:end]
+		outputPath, currentURL := sectionPagerLocation(sec.Path, sec.Permalink, paginatePath, i)
+		pager := map[string]any{
+			"base_url":      baseURL,
+			"current_index": i,
+			"number_pagers": numberPagers,
+			"per_page":      perPage,
+			"total_pages":   pagesCount,
+			"first":         sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, 1),
+			"last":          sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, numberPagers),
+			"current":       currentURL,
+			"pages":         chunk,
+		}
+		if i > 1 {
+			pager["previous"] = sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, i-1)
+		}
+		if i < numberPagers {
+			pager["next"] = sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, i+1)
+		}
+		plans = append(plans, sectionRenderPlan{OutputPath: outputPath, Pages: chunk, Paginator: pager})
+	}
+
+	return plans
+}
+
+func sectionPagerLocation(sectionPath, sectionPermalink, paginatePath string, index int) (string, string) {
+	if index <= 1 {
+		return filepath.Join(strings.TrimPrefix(sectionPath, "/"), "index.html"), sectionPermalink
+	}
+	rel := filepath.Join(strings.TrimPrefix(sectionPath, "/"), paginatePath, strconv.Itoa(index), "index.html")
+	return rel, sectionPagerPermalink(sectionPath, sectionPermalink, paginatePath, index)
+}
+
+func sectionPagerPermalink(sectionPath, sectionPermalink, paginatePath string, index int) string {
+	if index <= 1 {
+		return sectionPermalink
+	}
+	base := strings.TrimSuffix(sectionPermalink, "/")
+	if base == "" {
+		base = "/"
+	}
+	if base == "/" {
+		return "/" + strings.Trim(filepath.ToSlash(filepath.Join(paginatePath, strconv.Itoa(index))), "/") + "/"
+	}
+	return base + "/" + strings.Trim(filepath.ToSlash(filepath.Join(paginatePath, strconv.Itoa(index))), "/") + "/"
 }
 
 func (s *Site) renderTaxonomies(liveReloadURL string) error {
@@ -485,7 +594,14 @@ func (s *Site) renderFeed() error {
 	if err != nil {
 		content = "<?xml version=\"1.0\"?><rss version=\"2.0\"></rss>"
 	}
-	return s.writeOutput("rss.xml", content)
+	if err := s.writeOutput("rss.xml", content); err != nil {
+		return err
+	}
+	atom, err := s.Templates.Render("atom.xml", map[string]any{"pages": pages, "config": map[string]any{"title": s.Config.Title}})
+	if err != nil {
+		atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+	}
+	return s.writeOutput("atom.xml", atom)
 }
 
 func (s *Site) render404(liveReloadURL string) error {
@@ -617,21 +733,19 @@ func (s *Site) serializedPages() map[string]any {
 func (s *Site) serializedSections() map[string]any {
 	out := map[string]any{}
 	for rel, sec := range s.Library.Sections {
-		pages := make([]map[string]any, 0, len(sec.Pages))
-		for _, p := range sec.Pages {
-			if pg, ok := s.Library.Pages[p]; ok {
-				pages = append(pages, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
-			}
-		}
+		pages := s.sectionPageEntries(sec)
 		out[rel] = map[string]any{
-			"title":         sec.Meta.Title,
-			"description":   sec.Meta.Description,
-			"path":          sec.Path,
-			"relative_path": sec.RelativePath,
-			"permalink":     sec.Permalink,
-			"pages":         pages,
-			"subsections":   sec.Subsections,
-			"content":       sec.Content,
+			"title":             sec.Meta.Title,
+			"description":       sec.Meta.Description,
+			"path":              sec.Path,
+			"relative_path":     sec.RelativePath,
+			"permalink":         sec.Permalink,
+			"pages":             pages,
+			"subsections":       sec.Subsections,
+			"content":           sec.Content,
+			"paginate_by":       sec.Meta.PaginateBy,
+			"paginate_path":     sec.Meta.PaginatePath,
+			"paginate_reversed": sec.Meta.PaginateReversed,
 		}
 	}
 	return out
