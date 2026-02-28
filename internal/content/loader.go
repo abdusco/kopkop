@@ -452,7 +452,20 @@ func attachTranslations(lib *Library, defaultLang string) {
 		groups[translationKey(rel, p.Lang, defaultLang)] = append(groups[translationKey(rel, p.Lang, defaultLang)], rel)
 	}
 	for _, paths := range groups {
-		sort.Strings(paths)
+		sort.SliceStable(paths, func(i, j int) bool {
+			li := lib.Pages[paths[i]].Lang
+			lj := lib.Pages[paths[j]].Lang
+			if li == defaultLang && lj != defaultLang {
+				return true
+			}
+			if li != defaultLang && lj == defaultLang {
+				return false
+			}
+			if li != lj {
+				return li < lj
+			}
+			return paths[i] < paths[j]
+		})
 		for _, rel := range paths {
 			all := make([]string, 0, len(paths))
 			all = append(all, paths...)

@@ -323,8 +323,35 @@ func (s *Site) baseTemplateContext(lang string) map[string]any {
 }
 
 func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
-	trans := make([]map[string]any, 0, len(pg.Translations))
-	for _, tRel := range pg.Translations {
+	transRels := make([]string, 0, len(pg.Translations))
+	transRels = append(transRels, pg.Translations...)
+	if pg.Date == nil {
+		sort.Strings(transRels)
+	} else {
+		sort.SliceStable(transRels, func(i, j int) bool {
+			li := ""
+			lj := ""
+			if tp := s.Library.Pages[transRels[i]]; tp != nil {
+				li = tp.Lang
+			}
+			if tp := s.Library.Pages[transRels[j]]; tp != nil {
+				lj = tp.Lang
+			}
+			if li == s.Config.DefaultLanguage && lj != s.Config.DefaultLanguage {
+				return true
+			}
+			if li != s.Config.DefaultLanguage && lj == s.Config.DefaultLanguage {
+				return false
+			}
+			if li != lj {
+				return li < lj
+			}
+			return transRels[i] < transRels[j]
+		})
+	}
+
+	trans := make([]map[string]any, 0, len(transRels))
+	for _, tRel := range transRels {
 		if tp, ok := s.Library.Pages[tRel]; ok {
 			trans = append(trans, map[string]any{
 				"path":      tRel,
@@ -1339,7 +1366,7 @@ func (s *Site) renderFeed() error {
 			continue
 		}
 		_ = langPages
-		langAtom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/", s.Config.Title, lang, rawPagesByLang[lang])
+		langAtom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, lang, rawPagesByLang[lang])
 		if err := s.writeOutput(filepath.Join(lang, "atom.xml"), langAtom); err != nil {
 			return err
 		}
