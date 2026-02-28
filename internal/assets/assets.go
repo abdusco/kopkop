@@ -74,42 +74,46 @@ func CompileSassDir(sassDir string, outputPath string) error {
 		}
 		return err
 	}
+	_, sassErr := exec.LookPath("sass")
 
-	entries, err := os.ReadDir(sassDir)
-	if err != nil {
-		return err
-	}
-
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	return filepath.WalkDir(sassDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		name := e.Name()
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
 		ext := strings.ToLower(filepath.Ext(name))
 		if ext != ".scss" && ext != ".sass" {
-			continue
+			return nil
 		}
 		if strings.HasPrefix(name, "_") {
-			continue
+			return nil
 		}
-		src := filepath.Join(sassDir, name)
-		dst := filepath.Join(outputPath, strings.TrimSuffix(name, ext)+".css")
+
+		rel, relErr := filepath.Rel(sassDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		dstRel := strings.TrimSuffix(rel, ext) + ".css"
+		dst := filepath.Join(outputPath, dstRel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
 
-		if _, err := exec.LookPath("sass"); err == nil {
-			cmd := exec.Command("sass", "--no-source-map", src, dst)
+		if sassErr == nil {
+			cmd := exec.Command("sass", "--no-source-map", path, dst)
 			if output, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
-				return fmt.Errorf("sass compile %s: %w: %s", name, cmdErr, strings.TrimSpace(string(output)))
+				return fmt.Errorf("sass compile %s: %w: %s", rel, cmdErr, strings.TrimSpace(string(output)))
 			}
-		} else {
-			// Fallback: copy raw file into css output so builds stay usable.
-			if err := copyFile(src, dst); err != nil {
-				return err
-			}
+			return nil
 		}
-	}
 
-	return nil
+		// Fallback: copy raw file into css output so builds stay usable.
+		if err := copyFile(path, dst); err != nil {
+			return err
+		}
+		return nil
+	})
 }
