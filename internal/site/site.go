@@ -1099,6 +1099,13 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
+func xmlEscapeHTMLPayload(s string) string {
+	escaped := xmlEscape(s)
+	escaped = strings.ReplaceAll(escaped, "&#39;", "&#x27;")
+	escaped = strings.ReplaceAll(escaped, "&lt;/", "&lt;&#x2F;")
+	return escaped
+}
+
 func formatAtomTime(t *time.Time) string {
 	if t == nil {
 		return ""
@@ -1223,13 +1230,13 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang
 		if p.Summary != nil {
 			summary := continueReadingMarkerRe.ReplaceAllString(*p.Summary, "")
 			b.WriteString("        <summary type=\"html\">")
-			b.WriteString(xmlEscape(summary))
+			b.WriteString(xmlEscapeHTMLPayload(summary))
 			b.WriteString("</summary>\n")
 		} else {
 			b.WriteString("        <content type=\"html\" xml:base=\"")
 			b.WriteString(xmlEscape(p.Permalink))
 			b.WriteString("\">")
-			b.WriteString(xmlEscape(p.Content))
+			b.WriteString(xmlEscapeHTMLPayload(p.Content))
 			b.WriteString("</content>\n")
 		}
 
