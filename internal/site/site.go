@@ -325,30 +325,26 @@ func (s *Site) baseTemplateContext(lang string) map[string]any {
 func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 	transRels := make([]string, 0, len(pg.Translations))
 	transRels = append(transRels, pg.Translations...)
-	if pg.Date == nil {
-		sort.Strings(transRels)
-	} else {
-		sort.SliceStable(transRels, func(i, j int) bool {
-			li := ""
-			lj := ""
-			if tp := s.Library.Pages[transRels[i]]; tp != nil {
-				li = tp.Lang
-			}
-			if tp := s.Library.Pages[transRels[j]]; tp != nil {
-				lj = tp.Lang
-			}
-			if li == s.Config.DefaultLanguage && lj != s.Config.DefaultLanguage {
-				return true
-			}
-			if li != s.Config.DefaultLanguage && lj == s.Config.DefaultLanguage {
-				return false
-			}
-			if li != lj {
-				return li < lj
-			}
-			return transRels[i] < transRels[j]
-		})
-	}
+	sort.SliceStable(transRels, func(i, j int) bool {
+		li := ""
+		lj := ""
+		if tp := s.Library.Pages[transRels[i]]; tp != nil {
+			li = tp.Lang
+		}
+		if tp := s.Library.Pages[transRels[j]]; tp != nil {
+			lj = tp.Lang
+		}
+		if li == s.Config.DefaultLanguage && lj != s.Config.DefaultLanguage {
+			return true
+		}
+		if li != s.Config.DefaultLanguage && lj == s.Config.DefaultLanguage {
+			return false
+		}
+		if li != lj {
+			return li < lj
+		}
+		return transRels[i] < transRels[j]
+	})
 
 	trans := make([]map[string]any, 0, len(transRels))
 	for _, tRel := range transRels {
@@ -442,6 +438,17 @@ func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]
 			})
 		}
 		sort.SliceStable(all, func(i, j int) bool {
+			li := fmt.Sprint(all[i]["lang"])
+			lj := fmt.Sprint(all[j]["lang"])
+			if li == s.Config.DefaultLanguage && lj != s.Config.DefaultLanguage {
+				return true
+			}
+			if li != s.Config.DefaultLanguage && lj == s.Config.DefaultLanguage {
+				return false
+			}
+			if li != lj {
+				return li > lj
+			}
 			return fmt.Sprint(all[i]["path"]) < fmt.Sprint(all[j]["path"])
 		})
 		trans = all
