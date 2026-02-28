@@ -421,6 +421,14 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		if sec.Meta.Render != nil && !*sec.Meta.Render {
 			continue
 		}
+		renderedSection, secErr := markdown.RenderContent(sec.RawContent, markdown.RenderContext{
+			Permalinks:           s.Library.Permalinks,
+			CurrentPagePath:      sec.RelativePath,
+			CurrentPagePermalink: sec.Permalink,
+		})
+		if secErr == nil {
+			sec.Content = renderedSection.Body
+		}
 		tpl := "section.html"
 		if sec.Meta.Template != "" {
 			tpl = sec.Meta.Template
@@ -450,6 +458,40 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			}
 			html = injectLiveReload(html, liveReloadURL)
 			if err := s.writeOutput(plan.OutputPath, html); err != nil {
+				return err
+			}
+		}
+	}
+
+	defaultRoot, hasDefaultRoot := s.Library.Sections["_index.md"]
+	if hasDefaultRoot {
+		for lang := range s.Config.Languages {
+			if lang == s.Config.DefaultLanguage {
+				continue
+			}
+			if _, ok := s.Library.Sections["_index."+lang+".md"]; ok {
+				continue
+			}
+			ctx := s.baseTemplateContext(lang)
+			ctx["section"] = map[string]any{
+				"title":             defaultRoot.Meta.Title,
+				"description":       defaultRoot.Meta.Description,
+				"path":              "/" + lang + "/",
+				"relative_path":     "_index." + lang + ".md",
+				"permalink":         strings.TrimRight(s.Config.BaseURL, "/") + "/" + lang + "/",
+				"pages":             []map[string]any{},
+				"subsections":       []string{},
+				"content":           defaultRoot.Content,
+				"paginate_by":       0,
+				"paginate_path":     "",
+				"paginate_reversed": false,
+			}
+			html, err := s.Templates.Render("section.html", ctx)
+			if err != nil {
+				html = "<html><body><h1>" + defaultRoot.Meta.Title + "</h1></body></html>"
+			}
+			html = injectLiveReload(html, liveReloadURL)
+			if err := s.writeOutput(filepath.Join(lang, "index.html"), html); err != nil {
 				return err
 			}
 		}

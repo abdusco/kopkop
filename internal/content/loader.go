@@ -541,7 +541,8 @@ func parentSectionPath(rel string, lang string, defaultLang string) string {
 }
 
 func findColocatedAssets(pageAbsPath string) ([]string, error) {
-	if strings.TrimSuffix(filepath.Base(pageAbsPath), filepath.Ext(pageAbsPath)) != "index" {
+	name := strings.TrimSuffix(filepath.Base(pageAbsPath), filepath.Ext(pageAbsPath))
+	if name != "index" && !strings.HasPrefix(name, "index.") {
 		return []string{}, nil
 	}
 	dir := filepath.Dir(pageAbsPath)
