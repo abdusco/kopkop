@@ -7,7 +7,7 @@ type PageFrontMatter struct {
 	Description string              `toml:"description" yaml:"description"`
 	Slug        string              `toml:"slug" yaml:"slug"`
 	Path        string              `toml:"path" yaml:"path"`
-	Date        string              `toml:"date" yaml:"date"`
+	Date        any                 `toml:"date" yaml:"date"`
 	Template    string              `toml:"template" yaml:"template"`
 	Aliases     []string            `toml:"aliases" yaml:"aliases"`
 	Taxonomies  map[string][]string `toml:"taxonomies" yaml:"taxonomies"`

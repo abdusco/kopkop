@@ -18,6 +18,9 @@ import (
 	"github.com/abdusco/kopkop/internal/imageproc"
 )
 
+var namedEndTagRe = regexp.MustCompile(`\{%(\s*end(?:macro|block))\s+[a-zA-Z0-9_]+\s*%\}`)
+var teraMacroCallRe = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)::([a-zA-Z_][a-zA-Z0-9_]*)\(`)
+
 type Manager struct {
 	Engine    *Engine
 	Resolver  Resolver
@@ -92,19 +95,27 @@ func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
 		if err != nil {
 			return err
 		}
-		if err := m.Engine.AddTemplate(name, string(b)); err != nil {
-			return err
+		source := normalizeTemplateSyntax(string(b))
+		if err := m.Engine.AddTemplate(name, source); err != nil {
+			return fmt.Errorf("parse template %q: %w", name, err)
 		}
 		m.Available[name] = struct{}{}
 
 		if filepath.Base(p) == "robots.txt" {
-			if err := m.Engine.AddTemplate("robots.txt", string(b)); err != nil {
+			if err := m.Engine.AddTemplate("robots.txt", source); err != nil {
 				return err
 			}
 			m.Available["robots.txt"] = struct{}{}
 		}
 		return nil
 	})
+}
+
+func normalizeTemplateSyntax(in string) string {
+	// Tera allows named end tags like `{% endmacro name %}`; MiniJinja expects `{% endmacro %}`.
+	out := namedEndTagRe.ReplaceAllString(in, `{%$1 %}`)
+	out = teraMacroCallRe.ReplaceAllString(out, `${1}.${2}(`)
+	return out
 }
 
 func (m *Manager) Render(name string, data map[string]any) (string, error) {
@@ -140,6 +151,15 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 		}
 		if strings.HasPrefix(name, "__zola_builtins/shortcodes/") {
 			scName := strings.TrimSuffix(strings.TrimPrefix(name, "__zola_builtins/shortcodes/"), filepath.Ext(name))
+			if _, exists := defs[scName]; exists {
+				continue
+			}
+			defs[scName] = ShortcodeDefinition{Name: scName, FileType: fileType, Template: name}
+			continue
+		}
+
+		if idx := strings.Index(name, "/templates/shortcodes/"); idx != -1 {
+			scName := strings.TrimSuffix(name[idx+len("/templates/shortcodes/"):], filepath.Ext(name))
 			if _, exists := defs[scName]; exists {
 				continue
 			}

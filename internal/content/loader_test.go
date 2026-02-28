@@ -90,3 +90,45 @@ func TestLoadLibrary_MultilingualPagePathsAndParentSection(t *testing.T) {
 	require.NotNil(t, sec)
 	assert.Contains(t, sec.Pages, "blog/post.fr.md")
 }
+
+func TestLoadLibrary_IgnoresHiddenAndConfiguredPatterns(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", ".hidden.md"), []byte("+++\ntitle='Hidden'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "ignore-me.md"), []byte("+++\ntitle='Ignore'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "keep-me.md"), []byte("+++\ntitle='Keep'\n+++\n"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+	cfg.IgnoredContent = []string{"ignore-me.md"}
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+	_, hasHidden := lib.Pages[".hidden.md"]
+	_, hasIgnored := lib.Pages["ignore-me.md"]
+	_, hasKept := lib.Pages["keep-me.md"]
+	assert.False(t, hasHidden)
+	assert.False(t, hasIgnored)
+	assert.True(t, hasKept)
+}
+
+func TestLoadLibrary_AllowsMarkdownWithoutFrontMatter(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("Home without front matter"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "plain.md"), []byte("Plain body"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+	require.Contains(t, lib.Sections, "_index.md")
+	require.Contains(t, lib.Pages, "plain.md")
+	assert.Equal(t, "Plain body", lib.Pages["plain.md"].RawContent)
+}

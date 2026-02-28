@@ -2,7 +2,7 @@ package frontmatter
 
 import (
 	"fmt"
-	"regexp"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"gopkg.in/yaml.v3"
@@ -20,32 +20,69 @@ type RawFrontMatter struct {
 	Data   string
 }
 
-var (
-	tomlRe = regexp.MustCompile(`(?s)^[\s]*\+\+\+\r?\n(.*?)\r?\n\+\+\+[\s]*(?:$|\r?\n(.*)$)`)
-	yamlRe = regexp.MustCompile(`(?s)^[\s]*---\r?\n(.*?)\r?\n---[\s]*(?:$|\r?\n(.*)$)`)
-)
-
 func SplitContent(filePath string, content string) (RawFrontMatter, string, error) {
-	if matches := tomlRe.FindStringSubmatch(content); matches != nil {
-		body := ""
-		if len(matches) > 2 {
-			body = matches[2]
-		}
-		return RawFrontMatter{Format: FormatTOML, Data: matches[1]}, body, nil
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	start := firstNonWhitespace(normalized)
+	if start < 0 {
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
 	}
 
-	if matches := yamlRe.FindStringSubmatch(content); matches != nil {
-		body := ""
-		if len(matches) > 2 {
-			body = matches[2]
-		}
-		return RawFrontMatter{Format: FormatYAML, Data: matches[1]}, body, nil
+	chunk := normalized[start:]
+	delim := ""
+	format := Format("")
+	switch {
+	case strings.HasPrefix(chunk, "+++"):
+		delim = "+++"
+		format = FormatTOML
+	case strings.HasPrefix(chunk, "---"):
+		delim = "---"
+		format = FormatYAML
+	default:
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
 	}
 
-	return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+	afterOpen := chunk[len(delim):]
+	if !strings.HasPrefix(afterOpen, "\n") {
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+	}
+	afterOpen = afterOpen[1:]
+
+	lines := strings.Split(afterOpen, "\n")
+	header := make([]string, 0, 8)
+	closeLine := -1
+	for i, line := range lines {
+		if line == delim {
+			closeLine = i
+			break
+		}
+		header = append(header, line)
+	}
+	if closeLine == -1 {
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+	}
+
+	body := ""
+	if closeLine+1 < len(lines) {
+		body = strings.Join(lines[closeLine+1:], "\n")
+	}
+
+	return RawFrontMatter{Format: format, Data: strings.Join(header, "\n")}, body, nil
+}
+
+func firstNonWhitespace(s string) int {
+	for i, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			continue
+		}
+		return i
+	}
+	return -1
 }
 
 func (r RawFrontMatter) Decode(v any) error {
+	if strings.TrimSpace(r.Data) == "" {
+		return nil
+	}
 	switch r.Format {
 	case FormatTOML:
 		if _, err := toml.Decode(r.Data, v); err != nil {

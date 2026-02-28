@@ -21,6 +21,8 @@ func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(root, "themes", "hyde", "templates", "page.html"), []byte("theme-page"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("site-section"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "themes", "hyde", "templates", "shortcodes"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "themes", "hyde", "templates", "shortcodes", "pirate.html"), []byte("Arr"), 0o644))
 
 	mgr, err := LoadManager(root, "hyde")
 	require.NoError(t, err)
@@ -36,6 +38,11 @@ func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 	out, err = mgr.Render("404.html", map[string]any{})
 	require.NoError(t, err)
 	assert.Contains(t, out, "404")
+
+	defs := mgr.ShortcodeDefinitions()
+	def, ok := defs["pirate"]
+	require.True(t, ok)
+	assert.Equal(t, "hyde/templates/shortcodes/pirate.html", def.Template)
 }
 
 func TestManagerHelpers(t *testing.T) {
@@ -69,4 +76,17 @@ func TestManagerHelpers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, imgOut, "10x5|")
 	assert.Contains(t, imgOut, "/processed_images/")
+}
+
+func TestNormalizeTemplateSyntax_NamedEndTags(t *testing.T) {
+	t.Parallel()
+
+	in := "{% macro twice(str) %}{{str}}{% endmacro twice %}\n{% block a %}x{% endblock a %}\n{{ macros::twice(str=\"hey\") }}"
+	out := normalizeTemplateSyntax(in)
+	assert.Contains(t, out, "{% endmacro %}")
+	assert.Contains(t, out, "{% endblock %}")
+	assert.Contains(t, out, "{{ macros.twice(str=\"hey\") }}")
+	assert.NotContains(t, out, "endmacro twice")
+	assert.NotContains(t, out, "endblock a")
+	assert.NotContains(t, out, "macros::twice")
 }

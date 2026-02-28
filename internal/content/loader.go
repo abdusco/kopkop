@@ -39,6 +39,9 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		if shouldIgnoreContent(rel, cfg.IgnoredContent) {
+			return nil
+		}
 
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -95,8 +98,28 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 	return lib, nil
 }
 
+func shouldIgnoreContent(rel string, patterns []string) bool {
+	base := filepath.Base(rel)
+	if strings.HasPrefix(base, ".") {
+		return true
+	}
+	for _, p := range patterns {
+		p = filepath.ToSlash(p)
+		if match, _ := filepath.Match(p, rel); match {
+			return true
+		}
+		if strings.HasPrefix(p, "**/") {
+			trim := strings.TrimPrefix(p, "**/")
+			if match, _ := filepath.Match(trim, base); match {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, error) {
-	meta, body, err := frontmatter.ParseFrontMatter[PageFrontMatter](relPath, content)
+	meta, body, err := parsePageFrontMatterOptional(relPath, content)
 	if err != nil {
 		return nil, err
 	}
@@ -124,10 +147,8 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		ParentSection: parentSectionPath(relPath, lang, cfg.DefaultLanguage),
 	}
 
-	if meta.Date != "" {
-		if t, e := time.Parse(time.RFC3339, meta.Date); e == nil {
-			page.Date = &t
-		}
+	if t, ok := parseDateAny(meta.Date); ok {
+		page.Date = &t
 	} else if extractedDate != "" {
 		if t, e := time.Parse(time.RFC3339, extractedDate); e == nil {
 			page.Date = &t
@@ -141,7 +162,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 }
 
 func parseSection(absPath, relPath, content string, cfg config.Config) (*Section, error) {
-	meta, body, err := frontmatter.ParseFrontMatter[SectionFrontMatter](relPath, content)
+	meta, body, err := parseSectionFrontMatterOptional(relPath, content)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +254,28 @@ func baseNameForSlug(relPath string, lang string, defaultLang string) string {
 	return name
 }
 
+func parseDateAny(v any) (time.Time, bool) {
+	switch x := v.(type) {
+	case nil:
+		return time.Time{}, false
+	case time.Time:
+		return x, true
+	case string:
+		if x == "" {
+			return time.Time{}, false
+		}
+		if t, err := time.Parse(time.RFC3339, x); err == nil {
+			return t, true
+		}
+		if t, err := time.Parse("2006-01-02", x); err == nil {
+			return t, true
+		}
+		return time.Time{}, false
+	default:
+		return time.Time{}, false
+	}
+}
+
 func splitComponents(p string) []string {
 	p = filepath.ToSlash(strings.Trim(p, "/"))
 	if p == "" || p == "." {
@@ -285,4 +328,28 @@ func findColocatedAssets(pageAbsPath string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func parsePageFrontMatterOptional(relPath string, contentStr string) (PageFrontMatter, string, error) {
+	meta, body, err := frontmatter.ParseFrontMatter[PageFrontMatter](relPath, contentStr)
+	if err == nil {
+		return meta, body, nil
+	}
+	trim := strings.TrimLeft(contentStr, " \t\r\n")
+	if strings.HasPrefix(trim, "+++") || strings.HasPrefix(trim, "---") {
+		return PageFrontMatter{}, "", err
+	}
+	return PageFrontMatter{}, contentStr, nil
+}
+
+func parseSectionFrontMatterOptional(relPath string, contentStr string) (SectionFrontMatter, string, error) {
+	meta, body, err := frontmatter.ParseFrontMatter[SectionFrontMatter](relPath, contentStr)
+	if err == nil {
+		return meta, body, nil
+	}
+	trim := strings.TrimLeft(contentStr, " \t\r\n")
+	if strings.HasPrefix(trim, "+++") || strings.HasPrefix(trim, "---") {
+		return SectionFrontMatter{}, "", err
+	}
+	return SectionFrontMatter{}, contentStr, nil
 }

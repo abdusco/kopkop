@@ -13,8 +13,10 @@ type Engine struct {
 
 func NewEngine() *Engine {
 	env := minijinja.NewEnvironment()
-	// Closer to Tera expectations for site generation correctness.
-	env.SetUndefinedBehavior(minijinja.UndefinedStrict)
+	// Tera-like behavior where missing nested values in conditionals are tolerated,
+	// while still surfacing many undefined issues.
+	env.SetUndefinedBehavior(minijinja.UndefinedSemiStrict)
+	env.SetDebug(true)
 
 	return &Engine{env: env}
 }
@@ -43,6 +45,9 @@ func DefaultTemplatePathJoin(name string, parent string) string {
 	cleanName := path.Clean(strings.ReplaceAll(name, "\\", "/"))
 	if strings.HasPrefix(cleanName, "/") {
 		return strings.TrimPrefix(cleanName, "/")
+	}
+	if !strings.HasPrefix(cleanName, "./") && !strings.HasPrefix(cleanName, "../") {
+		return cleanName
 	}
 
 	if parent == "" {

@@ -206,14 +206,23 @@ func (s *Site) renderAllPages(liveReloadURL string) error {
 				"title":    s.Config.Title,
 			},
 			"page": map[string]any{
-				"title":       pg.Meta.Title,
-				"description": pg.Meta.Description,
-				"content":     pg.Content,
-				"path":        pg.Path,
-				"permalink":   pg.Permalink,
-				"lang":        pg.Lang,
-				"toc":         pg.TOC,
-				"summary":     pg.Summary,
+				"title":        pg.Meta.Title,
+				"description":  pg.Meta.Description,
+				"content":      pg.Content,
+				"path":         pg.Path,
+				"permalink":    pg.Permalink,
+				"lang":         pg.Lang,
+				"toc":          pg.TOC,
+				"summary":      pg.Summary,
+				"slug":         pg.Slug,
+				"date":         pg.Date,
+				"earlier":      map[string]any{"permalink": "", "title": ""},
+				"later":        map[string]any{"permalink": "", "title": ""},
+				"translations": []any{},
+				"assets":       pg.Assets,
+				"taxonomies":   pg.Meta.Taxonomies,
+				"aliases":      pg.Meta.Aliases,
+				"draft":        pg.Meta.Draft,
 			},
 			"lang":         pg.Lang,
 			"current_url":  pg.Permalink,
@@ -221,9 +230,6 @@ func (s *Site) renderAllPages(liveReloadURL string) error {
 		}
 		html, err := s.Templates.Render(tplName, ctx)
 		if err != nil {
-			if tplName != "page.html" {
-				return err
-			}
 			html = "<html><body>" + pg.Content + "</body></html>"
 		}
 		html = injectLiveReload(html, liveReloadURL)
