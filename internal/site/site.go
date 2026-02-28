@@ -458,6 +458,9 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			sec.Content = renderedSection.Body
 		}
 		tpl := "section.html"
+		if isRootSectionPath(sec.RelativePath) && s.templateExists("index.html") {
+			tpl = "index.html"
+		}
 		if sec.Meta.Template != "" {
 			tpl = sec.Meta.Template
 		}
@@ -535,7 +538,11 @@ func (s *Site) renderSections(liveReloadURL string) error {
 				"paginate_path":     "",
 				"paginate_reversed": false,
 			}
-			html, err := s.Templates.Render("section.html", ctx)
+			rootTpl := "section.html"
+			if s.templateExists("index.html") {
+				rootTpl = "index.html"
+			}
+			html, err := s.Templates.Render(rootTpl, ctx)
 			if err != nil {
 				html = "<html><body><h1>" + defaultRoot.Meta.Title + "</h1></body></html>"
 			}
@@ -546,6 +553,16 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		}
 	}
 	return nil
+}
+
+func isRootSectionPath(rel string) bool {
+	d := filepath.ToSlash(filepath.Dir(rel))
+	return d == "." || d == ""
+}
+
+func (s *Site) templateExists(name string) bool {
+	_, err := s.Templates.Resolver.Resolve(name, s.Templates.Available)
+	return err == nil
 }
 
 type sectionRenderPlan struct {
