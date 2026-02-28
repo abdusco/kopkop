@@ -12,6 +12,7 @@ type PageFrontMatter struct {
 	Template          string              `toml:"template" yaml:"template"`
 	Aliases           []string            `toml:"aliases" yaml:"aliases"`
 	Taxonomies        map[string][]string `toml:"taxonomies" yaml:"taxonomies"`
+	Authors           []string            `toml:"authors" yaml:"authors"`
 	Draft             bool                `toml:"draft" yaml:"draft"`
 	Render            *bool               `toml:"render" yaml:"render"`
 	InsertAnchorLinks string              `toml:"insert_anchor_links" yaml:"insert_anchor_links"`

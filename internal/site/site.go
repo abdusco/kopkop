@@ -1,6 +1,8 @@
 package site
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/abdusco/kopkop/internal/assets"
@@ -408,7 +411,6 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 	if err != nil {
 		return markdown.Rendered{}, err
 	}
-
 	rendered, err := markdown.RenderContent(contentWithMD, markdown.RenderContext{
 		Permalinks:           s.Library.Permalinks,
 		CurrentPagePath:      pg.RelativePath,
@@ -436,8 +438,12 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		if rErr != nil {
 			return markdown.Rendered{}, rErr
 		}
+		if !strings.Contains(repl, "<") {
+			repl = repl + "\n\n"
+		}
 		rendered.Body = strings.Replace(rendered.Body, shortcode.Placeholder, repl, 1)
 	}
+	rendered.Body = strings.ReplaceAll(rendered.Body, `<span id="continue-reading"></span>`+"\n<h", `<span id="continue-reading"></span><h`)
 
 	return rendered, nil
 }
@@ -722,6 +728,9 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 			if entries[i].pg.Meta.Weight != entries[j].pg.Meta.Weight {
 				return entries[i].pg.Meta.Weight < entries[j].pg.Meta.Weight
 			}
+			if entries[i].pg.Meta.Title != entries[j].pg.Meta.Title {
+				return entries[i].pg.Meta.Title < entries[j].pg.Meta.Title
+			}
 			return entries[i].rel < entries[j].rel
 		})
 	case "weight":
@@ -737,12 +746,7 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 			return entries[i].rel < entries[j].rel
 		})
 	default:
-		sort.SliceStable(entries, func(i, j int) bool {
-			if entries[i].pg.Meta.Weight != entries[j].pg.Meta.Weight {
-				return entries[i].pg.Meta.Weight < entries[j].pg.Meta.Weight
-			}
-			return entries[i].rel < entries[j].rel
-		})
+		// preserve content loader order for sections without explicit sorting
 	}
 
 	pages := make([]map[string]any, 0, len(entries))
@@ -930,11 +934,17 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 					return err
 				}
 				if s.taxonomyFeedEnabled(tax.Name, lang) {
-					feedCtx := map[string]any{"pages": entries, "config": map[string]any{"title": s.Config.Title}, "taxonomy": map[string]any{"name": tax.Name, "term": termName}}
-					atom, feedErr := s.Templates.Render("atom.xml", feedCtx)
-					if feedErr != nil {
-						atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+					taxPages := make([]*content.Page, 0)
+					if tx, ok := s.Library.Taxonomies[tax.Name]; ok {
+						if tt, ok := tx.Terms[termName]; ok {
+							for _, rel := range tt.Pages {
+								if p := s.Library.Pages[rel]; p != nil && p.Lang == lang {
+									taxPages = append(taxPages, p)
+								}
+							}
+						}
 					}
+					atom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)+"atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, lang, taxPages)
 					if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), "atom.xml"), atom); err != nil {
 						return err
 					}
@@ -965,20 +975,226 @@ func (s *Site) renderSitemap() error {
 		urls = append(urls, v)
 	}
 	sort.Strings(urls)
-	content, err := s.Templates.Render("sitemap.xml", map[string]any{"pages": urls})
-	if err != nil {
-		content = "<?xml version=\"1.0\"?><urlset></urlset>"
-	}
+	content := s.defaultSitemapXML()
 	return s.writeOutput("sitemap.xml", content)
+}
+
+func xmlEscape(s string) string {
+	var b bytes.Buffer
+	if err := xml.EscapeText(&b, []byte(s)); err != nil {
+		return s
+	}
+	return b.String()
+}
+
+func formatAtomTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	if t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Nanosecond() == 0 {
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC).Format("2006-01-02T15:04:05+00:00")
+	}
+	return t.UTC().Format("2006-01-02T15:04:05+00:00")
+}
+
+func (s *Site) sortedPagesForFeed(pages []*content.Page) []*content.Page {
+	out := make([]*content.Page, 0, len(pages))
+	for _, p := range pages {
+		if p == nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		di := out[i].Date
+		dj := out[j].Date
+		if di != nil && dj != nil && !di.Equal(*dj) {
+			return di.After(*dj)
+		}
+		if di != nil && dj == nil {
+			return true
+		}
+		if di == nil && dj != nil {
+			return false
+		}
+		if out[i].Meta.Title != out[j].Meta.Title {
+			return out[i].Meta.Title < out[j].Meta.Title
+		}
+		return out[i].Permalink < out[j].Permalink
+	})
+	return out
+}
+
+func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang string, pages []*content.Page) string {
+	ordered := s.sortedPagesForFeed(pages)
+	updated := ""
+	if len(ordered) > 0 {
+		updated = formatAtomTime(ordered[0].Date)
+	}
+	if updated == "" {
+		updated = time.Now().UTC().Format("2006-01-02T15:04:05+00:00")
+	}
+
+	var b strings.Builder
+	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	b.WriteString("<feed xmlns=\"http://www.w3.org/2005/Atom\"")
+	if lang != "" {
+		b.WriteString(" xml:lang=\"")
+		b.WriteString(xmlEscape(lang))
+		b.WriteString("\"")
+	}
+	b.WriteString(">\n")
+	b.WriteString("    <title>")
+	b.WriteString(xmlEscape(title))
+	b.WriteString("</title>\n")
+	b.WriteString("    <link rel=\"self\" type=\"application/atom+xml\" href=\"")
+	b.WriteString(xmlEscape(feedURL))
+	b.WriteString("\"/>\n")
+	b.WriteString("    <link rel=\"alternate\" type=\"text/html\" href=\"")
+	b.WriteString(xmlEscape(htmlURL))
+	b.WriteString("\"/>\n")
+	b.WriteString("    <generator uri=\"https://www.getzola.org/\">Zola</generator>\n")
+	b.WriteString("    <updated>")
+	b.WriteString(updated)
+	b.WriteString("</updated>\n")
+	b.WriteString("    <id>")
+	b.WriteString(xmlEscape(feedURL))
+	b.WriteString("</id>\n")
+
+	for _, p := range ordered {
+		if p.Date == nil {
+			continue
+		}
+		b.WriteString("    <entry")
+		if p.Lang != "" {
+			b.WriteString(" xml:lang=\"")
+			b.WriteString(xmlEscape(p.Lang))
+			b.WriteString("\"")
+		}
+		b.WriteString(">\n")
+		b.WriteString("        <title>")
+		b.WriteString(xmlEscape(p.Meta.Title))
+		b.WriteString("</title>\n")
+		if p.Date != nil {
+			ts := formatAtomTime(p.Date)
+			b.WriteString("        <published>")
+			b.WriteString(ts)
+			b.WriteString("</published>\n")
+			b.WriteString("        <updated>")
+			b.WriteString(ts)
+			b.WriteString("</updated>\n")
+		}
+
+		authors := p.Meta.Authors
+		if len(authors) == 0 && strings.TrimSpace(s.Config.Author) != "" {
+			authors = []string{s.Config.Author}
+		}
+		for _, author := range authors {
+			b.WriteString("        <author><name>")
+			b.WriteString(xmlEscape(author))
+			b.WriteString("</name></author>\n")
+		}
+
+		b.WriteString("        <link rel=\"alternate\" type=\"text/html\" href=\"")
+		b.WriteString(xmlEscape(p.Permalink))
+		b.WriteString("\"/>\n")
+		b.WriteString("        <id>")
+		b.WriteString(xmlEscape(p.Permalink))
+		b.WriteString("</id>\n")
+
+		if p.Summary != nil {
+			summary := strings.ReplaceAll(*p.Summary, `<span id="continue-reading"></span>`, "")
+			b.WriteString("        <summary type=\"html\">")
+			b.WriteString(xmlEscape(summary))
+			b.WriteString("</summary>\n")
+		} else {
+			b.WriteString("        <content type=\"html\" xml:base=\"")
+			b.WriteString(xmlEscape(p.Permalink))
+			b.WriteString("\">")
+			b.WriteString(xmlEscape(p.Content))
+			b.WriteString("</content>\n")
+		}
+
+		b.WriteString("    </entry>\n")
+	}
+	b.WriteString("</feed>")
+	return b.String()
+}
+
+func (s *Site) defaultSitemapXML() string {
+	lastmods := map[string]string{}
+	urlsSet := map[string]struct{}{}
+	for _, p := range s.Library.Pages {
+		if p.Meta.Render != nil && !*p.Meta.Render {
+			continue
+		}
+		urlsSet[p.Permalink] = struct{}{}
+		if p.Date != nil {
+			lastmods[p.Permalink] = p.Date.Format("2006-01-02")
+		}
+	}
+	for _, sec := range s.Library.Sections {
+		if sec.Meta.Render != nil && !*sec.Meta.Render {
+			continue
+		}
+		urlsSet[sec.Permalink] = struct{}{}
+		if sec.Meta.PaginateBy > 0 {
+			n := len(s.sectionRenderPlans(sec, s.sectionPageEntries(sec)))
+			if n > 0 {
+				paginatePath := strings.Trim(sec.Meta.PaginatePath, "/")
+				if paginatePath == "" {
+					paginatePath = "page"
+				}
+				for i := 1; i <= n; i++ {
+					urlsSet[sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, i)] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, tx := range s.Library.Taxonomies {
+		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(s.Config.DefaultLanguage, s.Config.DefaultLanguage, tx.Name, "")] = struct{}{}
+		for termName := range tx.Terms {
+			slug := slugifyURLSegment(termName)
+			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(s.Config.DefaultLanguage, s.Config.DefaultLanguage, tx.Name, slug)] = struct{}{}
+		}
+	}
+
+	urls := make([]string, 0, len(urlsSet))
+	for u := range urlsSet {
+		urls = append(urls, u)
+	}
+
+	sort.Strings(urls)
+	var b strings.Builder
+	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	b.WriteString("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n")
+	for _, u := range urls {
+		b.WriteString("    <url>\n")
+		b.WriteString("        <loc>")
+		b.WriteString(xmlEscape(u))
+		b.WriteString("</loc>\n")
+		if lm := lastmods[u]; lm != "" {
+			b.WriteString("        <lastmod>")
+			b.WriteString(lm)
+			b.WriteString("</lastmod>\n")
+		}
+		b.WriteString("    </url>\n")
+	}
+	b.WriteString("</urlset>")
+	return b.String()
 }
 
 func (s *Site) renderFeed() error {
 	pages := make([]map[string]any, 0, len(s.Library.Pages))
+	allPages := make([]*content.Page, 0, len(s.Library.Pages))
 	pagesByLang := map[string][]map[string]any{}
+	rawPagesByLang := map[string][]*content.Page{}
 	for _, p := range s.Library.Pages {
 		entry := map[string]any{"title": p.Meta.Title, "permalink": p.Permalink}
 		pages = append(pages, entry)
+		allPages = append(allPages, p)
 		pagesByLang[p.Lang] = append(pagesByLang[p.Lang], entry)
+		rawPagesByLang[p.Lang] = append(rawPagesByLang[p.Lang], p)
 	}
 	sort.SliceStable(pages, func(i, j int) bool {
 		return pages[i]["permalink"].(string) < pages[j]["permalink"].(string)
@@ -988,10 +1204,7 @@ func (s *Site) renderFeed() error {
 			return pagesByLang[lang][i]["permalink"].(string) < pagesByLang[lang][j]["permalink"].(string)
 		})
 	}
-	atom, err := s.Templates.Render("atom.xml", map[string]any{"pages": pages, "config": map[string]any{"title": s.Config.Title}})
-	if err != nil {
-		atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
-	}
+	atom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, s.Config.DefaultLanguage, allPages)
 	if err := s.writeOutput("atom.xml", atom); err != nil {
 		return err
 	}
@@ -1004,10 +1217,8 @@ func (s *Site) renderFeed() error {
 		if !ok || !opts.GenerateFeeds {
 			continue
 		}
-		langAtom, langErr := s.Templates.Render("atom.xml", map[string]any{"pages": langPages, "config": map[string]any{"title": s.Config.Title}, "lang": lang})
-		if langErr != nil {
-			langAtom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
-		}
+		_ = langPages
+		langAtom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/", s.Config.Title, lang, rawPagesByLang[lang])
 		if err := s.writeOutput(filepath.Join(lang, "atom.xml"), langAtom); err != nil {
 			return err
 		}
@@ -1017,11 +1228,13 @@ func (s *Site) renderFeed() error {
 		if !sec.Meta.GenerateFeed && !sec.Meta.GenerateFeeds {
 			continue
 		}
-		entries := s.sectionPageEntries(sec)
-		secAtom, secErr := s.Templates.Render("atom.xml", map[string]any{"pages": entries, "config": map[string]any{"title": s.Config.Title}, "section": map[string]any{"path": sec.Path, "title": sec.Meta.Title}})
-		if secErr != nil {
-			secAtom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+		secPages := make([]*content.Page, 0, len(sec.Pages))
+		for _, rel := range sec.Pages {
+			if p := s.Library.Pages[rel]; p != nil {
+				secPages = append(secPages, p)
+			}
 		}
+		secAtom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+"atom.xml", strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, sec.Lang, secPages)
 		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), "atom.xml"), secAtom); err != nil {
 			return err
 		}

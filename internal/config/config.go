@@ -51,6 +51,7 @@ type Config struct {
 	BaseURL             string                     `toml:"base_url"`
 	Title               string                     `toml:"title"`
 	Description         string                     `toml:"description"`
+	Author              string                     `toml:"author"`
 	Extra               map[string]any             `toml:"extra"`
 	Theme               string                     `toml:"theme"`
 	OutputDir           string                     `toml:"output_dir"`

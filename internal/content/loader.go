@@ -162,7 +162,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	if t, ok := parseDateAny(meta.Date); ok {
 		page.Date = &t
 	} else if extractedDate != "" {
-		if t, e := time.Parse(time.RFC3339, extractedDate); e == nil {
+		if t, ok := parseDateAny(extractedDate); ok {
 			page.Date = &t
 		}
 	}
@@ -519,7 +519,10 @@ func parseDateAny(v any) (time.Time, bool) {
 	case nil:
 		return time.Time{}, false
 	case time.Time:
-		return x, true
+		if x.Hour() == 0 && x.Minute() == 0 && x.Second() == 0 && x.Nanosecond() == 0 {
+			return time.Date(x.Year(), x.Month(), x.Day(), 0, 0, 0, 0, time.UTC), true
+		}
+		return x.UTC(), true
 	case string:
 		if x == "" {
 			return time.Time{}, false
