@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/abdusco/kopkop/internal/assets"
 	"github.com/abdusco/kopkop/internal/config"
@@ -34,6 +35,7 @@ type BuildOptions struct {
 	LiveReloadURL string
 	Minify        bool
 	Force         bool
+	Concurrency   int
 }
 
 type Site struct {
@@ -128,7 +130,7 @@ func (s *Site) Build(opts BuildOptions) error {
 		}
 	}
 
-	if err := s.renderAllPages(opts.LiveReloadURL); err != nil {
+	if err := s.renderAllPages(opts.LiveReloadURL, opts.Concurrency); err != nil {
 		return err
 	}
 	if err := s.renderAliases(); err != nil {
@@ -179,49 +181,99 @@ func (s *Site) CheckExternalLinks() []linkcheck.Result {
 	return linkcheck.CheckExternalLinks(s.Library, s.Config.LinkChecker)
 }
 
-func (s *Site) renderAllPages(liveReloadURL string) error {
+type pageRenderArtifact struct {
+	Path string
+	HTML string
+	Page *content.Page
+	Err  error
+}
+
+func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 	defs := s.Templates.ShortcodeDefinitions()
 	paths := make([]string, 0, len(s.Library.Pages))
 	for p := range s.Library.Pages {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+
+	jobs := make(chan string)
+	results := make(chan pageRenderArtifact, len(paths))
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		for rel := range jobs {
+			pg := s.Library.Pages[rel]
+			rendered, err := s.renderMarkdownWithShortcodes(pg, defs)
+			if err != nil {
+				results <- pageRenderArtifact{Err: fmt.Errorf("render markdown %s: %w", rel, err)}
+				continue
+			}
+			pg.Content = rendered.Body
+			pg.Summary = rendered.Summary
+			pg.ExternalLinks = rendered.ExternalLinks
+			pg.InternalLinks = make([]content.InternalLink, 0, len(rendered.InternalLinks))
+			for _, il := range rendered.InternalLinks {
+				pg.InternalLinks = append(pg.InternalLinks, content.InternalLink{Path: il.Path, Anchor: il.Anchor})
+			}
+			pg.TOC = make([]content.Heading, 0, len(rendered.TOC))
+			for _, h := range rendered.TOC {
+				pg.TOC = append(pg.TOC, content.Heading{ID: h.ID, Level: h.Level, Title: h.Title})
+			}
+
+			tplName := "page.html"
+			if pg.Meta.Template != "" {
+				tplName = pg.Meta.Template
+			} else if sec, ok := s.Library.Sections[pg.ParentSection]; ok && sec.Meta.PageTemplate != "" {
+				tplName = sec.Meta.PageTemplate
+			}
+			ctx := s.baseTemplateContext(pg.Lang)
+			ctx["page"] = s.pageView(rel, pg)
+			ctx["lang"] = pg.Lang
+			ctx["current_url"] = pg.Permalink
+			ctx["current_path"] = pg.Path
+			html, err := s.Templates.Render(tplName, ctx)
+			if err != nil {
+				html = "<html><body>" + pg.Content + "</body></html>"
+			}
+			html = injectLiveReload(html, liveReloadURL)
+			results <- pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: html, Page: pg}
+		}
+	}
+
+	if concurrency > len(paths) {
+		concurrency = len(paths)
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go worker()
+	}
+	for _, rel := range paths {
+		jobs <- rel
+	}
+	close(jobs)
+	wg.Wait()
+	close(results)
+
+	artifacts := make(map[string]pageRenderArtifact, len(paths))
+	for r := range results {
+		if r.Err != nil {
+			return r.Err
+		}
+		artifacts[r.Path] = r
+	}
 
 	for _, rel := range paths {
 		pg := s.Library.Pages[rel]
-		rendered, err := s.renderMarkdownWithShortcodes(pg, defs)
-		if err != nil {
-			return fmt.Errorf("render markdown %s: %w", rel, err)
-		}
-		pg.Content = rendered.Body
-		pg.Summary = rendered.Summary
-		pg.ExternalLinks = rendered.ExternalLinks
-		pg.InternalLinks = make([]content.InternalLink, 0, len(rendered.InternalLinks))
-		for _, il := range rendered.InternalLinks {
-			pg.InternalLinks = append(pg.InternalLinks, content.InternalLink{Path: il.Path, Anchor: il.Anchor})
-		}
-		pg.TOC = make([]content.Heading, 0, len(rendered.TOC))
-		for _, h := range rendered.TOC {
-			pg.TOC = append(pg.TOC, content.Heading{ID: h.ID, Level: h.Level, Title: h.Title})
-		}
-
-		tplName := "page.html"
-		if pg.Meta.Template != "" {
-			tplName = pg.Meta.Template
-		} else if sec, ok := s.Library.Sections[pg.ParentSection]; ok && sec.Meta.PageTemplate != "" {
-			tplName = sec.Meta.PageTemplate
-		}
-		ctx := s.baseTemplateContext(pg.Lang)
-		ctx["page"] = s.pageView(rel, pg)
-		ctx["lang"] = pg.Lang
-		ctx["current_url"] = pg.Permalink
-		ctx["current_path"] = pg.Path
-		html, err := s.Templates.Render(tplName, ctx)
-		if err != nil {
-			html = "<html><body>" + pg.Content + "</body></html>"
-		}
-		html = injectLiveReload(html, liveReloadURL)
-		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), html); err != nil {
+		outPath := filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html")
+		artifact := artifacts[outPath]
+		if err := s.writeOutput(outPath, artifact.HTML); err != nil {
 			return err
 		}
 	}
