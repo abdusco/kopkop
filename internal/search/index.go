@@ -32,9 +32,6 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 	sort.Strings(paths)
 	for _, p := range paths {
 		pg := lib.Pages[p]
-		if pg.Meta.Render != nil && !*pg.Meta.Render {
-			continue
-		}
 		if len(enabledLangs) > 0 && !enabledLangs[pg.Lang] {
 			continue
 		}
