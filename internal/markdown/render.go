@@ -19,6 +19,8 @@ const continueReadingHTML = `<span id="continue-reading"></span>`
 
 var moreDividerRe = regexp.MustCompile(`(?is)<!--\s*more\s*-->`)
 var headingRe = regexp.MustCompile(`(?s)<h([1-6]) id="([^"]+)">(.*?)</h[1-6]>`)
+var continueReadingParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(continueReadingHTML) + `\s*</p>`)
+var fencedCodeLangRe = regexp.MustCompile(`<pre><code class="language-([^"]+)">`)
 
 type Heading struct {
 	ID    string
@@ -43,6 +45,7 @@ type RenderContext struct {
 	Permalinks           map[string]string
 	CurrentPagePath      string
 	CurrentPagePermalink string
+	InsertAnchorLinks    bool
 }
 
 func RenderContent(content string, ctx RenderContext) (Rendered, error) {
@@ -96,7 +99,11 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 		return Rendered{}, fmt.Errorf("render markdown: %w", err)
 	}
 	body := buf.String()
-	body = insertAnchorLinks(body)
+	body = continueReadingParagraphRe.ReplaceAllString(body, continueReadingHTML)
+	body = fencedCodeLangRe.ReplaceAllString(body, `<pre data-lang="$1" class="language-$1 "><code class="language-$1" data-lang="$1">`)
+	if ctx.InsertAnchorLinks {
+		body = insertAnchorLinks(body)
+	}
 	summary := extractSummary(content, ctx, md)
 
 	toc := make([]Heading, 0)

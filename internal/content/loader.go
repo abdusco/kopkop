@@ -71,6 +71,7 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 				Permalinks:           lib.Permalinks,
 				CurrentPagePath:      page.RelativePath,
 				CurrentPagePermalink: page.Permalink,
+				InsertAnchorLinks:    cfg.Markdown.InsertAnchorLinks,
 			})
 			if renderErr == nil {
 				page.Content = res.Body
@@ -222,6 +223,22 @@ func attachPagesToSections(lib *Library) {
 	for rel, p := range lib.Pages {
 		if sec, ok := lib.Sections[p.ParentSection]; ok {
 			sec.Pages = append(sec.Pages, rel)
+			continue
+		}
+		base := filepath.Base(rel)
+		if base != "index.md" && !strings.HasPrefix(base, "index.") {
+			continue
+		}
+		for parent := p.ParentSection; ; {
+			next := parentSectionFromSectionPath(parent, sectionLangSuffix(parent))
+			if next == parent {
+				break
+			}
+			if sec, ok := lib.Sections[next]; ok {
+				sec.Pages = append(sec.Pages, rel)
+				break
+			}
+			parent = next
 		}
 	}
 

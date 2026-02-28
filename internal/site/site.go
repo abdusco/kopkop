@@ -52,6 +52,7 @@ type Site struct {
 }
 
 var htmlSpaceRe = regexp.MustCompile(`\s+`)
+var shortcodeParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(shortcode.Placeholder) + `\s*</p>`)
 
 func New(basePath string, configPath string) (*Site, error) {
 	cfg, err := config.FromFile(configPath)
@@ -411,10 +412,12 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		Permalinks:           s.Library.Permalinks,
 		CurrentPagePath:      pg.RelativePath,
 		CurrentPagePermalink: pg.Permalink,
+		InsertAnchorLinks:    s.Config.Markdown.InsertAnchorLinks,
 	})
 	if err != nil {
 		return markdown.Rendered{}, err
 	}
+	rendered.Body = shortcodeParagraphRe.ReplaceAllString(rendered.Body, shortcode.Placeholder)
 
 	for _, sc := range htmlSCs {
 		def, ok := defs[sc.Name]
@@ -453,6 +456,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			Permalinks:           s.Library.Permalinks,
 			CurrentPagePath:      sec.RelativePath,
 			CurrentPagePermalink: sec.Permalink,
+			InsertAnchorLinks:    s.Config.Markdown.InsertAnchorLinks,
 		})
 		if secErr == nil {
 			sec.Content = renderedSection.Body
@@ -565,6 +569,19 @@ func (s *Site) templateExists(name string) bool {
 	return err == nil
 }
 
+func (s *Site) renderFirstTemplate(candidates []string, ctx map[string]any) (string, error) {
+	for _, name := range candidates {
+		if !s.templateExists(name) {
+			continue
+		}
+		out, err := s.Templates.Render(name, ctx)
+		if err == nil {
+			return out, nil
+		}
+	}
+	return "", fmt.Errorf("no matching template")
+}
+
 type sectionRenderPlan struct {
 	OutputPath string
 	Pages      []map[string]any
@@ -576,6 +593,9 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 	for _, p := range sec.Pages {
 		pg := s.Library.Pages[p]
 		if pg == nil {
+			continue
+		}
+		if pg.Meta.Render != nil && !*pg.Meta.Render {
 			continue
 		}
 		pages = append(pages, s.pageView(p, pg))
@@ -698,20 +718,38 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 					"slug":      pathSlug,
 					"path":      taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug),
 					"permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug),
-					"pages":     len(entries),
+					"pages":     entries,
+					"count":     len(entries),
 				})
 			}
 			sort.SliceStable(termItems, func(i, j int) bool {
-				return termItems[i]["name"].(string) < termItems[j]["name"].(string)
+				return termItems[i]["name"].(string) > termItems[j]["name"].(string)
 			})
 
 			ctxList := s.baseTemplateContext(lang)
 			ctxList["current_path"] = taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, "")
 			ctxList["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, "")
 			ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": termItems}
-			listHTML, listErr := s.Templates.Render("taxonomy_list.html", ctxList)
+			ctxList["terms"] = termItems
+			listHTML, listErr := s.renderFirstTemplate([]string{
+				tax.Name + "/list.html",
+				slugifyURLSegment(tax.Name) + "/list.html",
+				"taxonomy_list.html",
+			}, ctxList)
 			if listErr != nil {
-				listHTML = "<html><body><h1>" + tax.Name + "</h1></body></html>"
+				var b strings.Builder
+				b.WriteString("\n")
+				for _, term := range termItems {
+					b.WriteString("    ")
+					b.WriteString(term["name"].(string))
+					b.WriteString("  ")
+					b.WriteString(term["slug"].(string))
+					b.WriteString(" ")
+					b.WriteString(strconv.Itoa(term["count"].(int)))
+					b.WriteString("\n")
+				}
+				b.WriteString("\n")
+				listHTML = b.String()
 			}
 			listHTML = injectLiveReload(listHTML, liveReloadURL)
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, ""), "/"), "index.html"), listHTML); err != nil {
@@ -723,10 +761,20 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 				ctx := s.baseTemplateContext(lang)
 				ctx["current_path"] = taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)
 				ctx["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)
+				termObj := map[string]any{"name": termName, "slug": pathSlug, "pages": entries, "path": taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)}
 				ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
-				html, err := s.Templates.Render("taxonomy_single.html", ctx)
+				ctx["term"] = termObj
+				html, err := s.renderFirstTemplate([]string{
+					tax.Name + "/single.html",
+					slugifyURLSegment(tax.Name) + "/single.html",
+					"taxonomy_single.html",
+				}, ctx)
 				if err != nil {
-					html = "<html><body><h1>" + tax.Name + ": " + termName + "</h1></body></html>"
+					html = "Category: " + termName + "\n\n\n"
+					for _, entry := range entries {
+						html += "    <article>\n        <h3 class=\"post__title\"><a href=\"" + fmt.Sprint(entry["permalink"]) + "\">" + fmt.Sprint(entry["title"]) + "</a></h3>\n    </article>\n"
+					}
+					html += "\n"
 				}
 				html = injectLiveReload(html, liveReloadURL)
 				if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), "index.html"), html); err != nil {
@@ -984,6 +1032,7 @@ func (s *Site) writeOutput(rel string, content string) error {
 	if s.Config.MinifyHTML && strings.HasSuffix(strings.ToLower(rel), ".html") {
 		content = minifyHTML(content)
 	}
+	content = strings.ReplaceAll(content, "&#x2f;", "&#x2F;")
 
 	lowerRel := strings.ToLower(rel)
 	if strings.HasSuffix(lowerRel, ".html") || strings.HasSuffix(lowerRel, ".xml") || strings.HasSuffix(lowerRel, ".txt") || strings.HasSuffix(lowerRel, ".css") || strings.HasSuffix(lowerRel, ".js") {

@@ -85,7 +85,7 @@ func Default() Config {
 		MinifyHTML:        false,
 		Taxonomies:        []TaxonomyConfig{},
 		Markdown: Markdown{
-			InsertAnchorLinks: true,
+			InsertAnchorLinks: false,
 		},
 		Search: Search{
 			BuildIndex: false,

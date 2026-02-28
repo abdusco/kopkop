@@ -236,3 +236,22 @@ func TestLoadLibrary_ParsesFrontMatterWithUTF8BOM(t *testing.T) {
 	assert.Equal(t, "Hello", pg.Meta.Title)
 	assert.Equal(t, "Body", pg.RawContent)
 }
+
+func TestLoadLibrary_AttachesNestedIndexPageToNearestAncestorSection(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "2018"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "2018", "index.md"), []byte("+++\ntitle='Year index'\n+++\n"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+
+	rootSection := lib.Sections["_index.md"]
+	require.NotNil(t, rootSection)
+	assert.Contains(t, rootSection.Pages, "2018/index.md")
+}

@@ -66,3 +66,32 @@ func TestRenderContent_BrokenInternalLinkErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "broken relative link")
 }
+
+func TestRenderContent_AnchorLinksToggle(t *testing.T) {
+	t.Parallel()
+
+	resWithoutAnchors, err := RenderContent("# Heading", RenderContext{InsertAnchorLinks: false})
+	require.NoError(t, err)
+	assert.NotContains(t, resWithoutAnchors.Body, "zola-anchor")
+
+	resWithAnchors, err := RenderContent("# Heading", RenderContext{InsertAnchorLinks: true})
+	require.NoError(t, err)
+	assert.Contains(t, resWithAnchors.Body, "zola-anchor")
+}
+
+func TestRenderContent_ContinueReadingIsNotWrappedInParagraph(t *testing.T) {
+	t.Parallel()
+
+	res, err := RenderContent("Before\n\n<!-- more -->\n\nAfter", RenderContext{})
+	require.NoError(t, err)
+	assert.Contains(t, res.Body, `<span id="continue-reading"></span>`)
+	assert.NotContains(t, res.Body, `<p><span id="continue-reading"></span></p>`)
+}
+
+func TestRenderContent_FencedCodeHasZolaLikeLanguageAttributes(t *testing.T) {
+	t.Parallel()
+
+	res, err := RenderContent("```rust\nfn main() {}\n```", RenderContext{})
+	require.NoError(t, err)
+	assert.Contains(t, res.Body, `<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">`)
+}
