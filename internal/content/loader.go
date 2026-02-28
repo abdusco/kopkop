@@ -102,7 +102,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	}
 
 	lang := inferLangFromFilename(relPath, cfg.DefaultLanguage)
-	fileName := strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath))
+	fileName := baseNameForSlug(relPath, lang, cfg.DefaultLanguage)
 	if fileName == "index" {
 		fileName = filepath.Base(filepath.Dir(relPath))
 	}
@@ -121,7 +121,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		Path:          p,
 		Permalink:     permalink,
 		Components:    splitComponents(strings.Trim(p, "/")),
-		ParentSection: parentSectionPath(relPath, cfg.DefaultLanguage),
+		ParentSection: parentSectionPath(relPath, lang, cfg.DefaultLanguage),
 	}
 
 	if meta.Date != "" {
@@ -220,6 +220,19 @@ func inferLangFromFilename(relPath string, def string) string {
 	return def
 }
 
+func baseNameForSlug(relPath string, lang string, defaultLang string) string {
+	base := filepath.Base(relPath)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	if lang != "" && lang != defaultLang {
+		suffix := "." + lang
+		if strings.HasSuffix(name, suffix) {
+			name = strings.TrimSuffix(name, suffix)
+		}
+	}
+	return name
+}
+
 func splitComponents(p string) []string {
 	p = filepath.ToSlash(strings.Trim(p, "/"))
 	if p == "" || p == "." {
@@ -236,12 +249,17 @@ func splitComponents(p string) []string {
 	return out
 }
 
-func parentSectionPath(rel string, defaultLang string) string {
+func parentSectionPath(rel string, lang string, defaultLang string) string {
 	dir := filepath.ToSlash(filepath.Dir(rel))
 	if dir == "." || dir == "" {
+		if lang != "" && lang != defaultLang {
+			return "_index." + lang + ".md"
+		}
 		return "_index.md"
 	}
-	_ = defaultLang
+	if lang != "" && lang != defaultLang {
+		return fmt.Sprintf("%s/_index.%s.md", dir, lang)
+	}
 	return fmt.Sprintf("%s/_index.md", dir)
 }
 
