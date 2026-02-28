@@ -146,6 +146,8 @@ func runServe(args []string) error {
 	port := fs.Int("port", 1111, "bind port")
 	drafts := fs.Bool("drafts", false, "include drafts")
 	storeHTML := fs.Bool("store-html", false, "store content in memory and disk")
+	open := fs.Bool("open", false, "open browser")
+	fast := fs.Bool("fast", false, "fast mode")
 	force := fs.Bool("force", true, "overwrite output")
 	debounce := fs.Duration("debounce", 200*time.Millisecond, "watch debounce")
 	if err := fs.Parse(args); err != nil {
@@ -171,6 +173,8 @@ func runServe(args []string) error {
 		Interface:     *interfaceIP,
 		Port:          *port,
 		IncludeDrafts: *drafts,
+		OpenBrowser:   *open,
+		Fast:          *fast,
 		StoreHTML:     *storeHTML,
 		Force:         *force,
 		Debounce:      *debounce,

@@ -6,7 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -139,6 +141,9 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 	}()
 
 	log.Printf("Serving at http://%s:%d", opts.Interface, opts.Port)
+	if opts.OpenBrowser {
+		openURL(fmt.Sprintf("http://%s:%d", opts.Interface, opts.Port))
+	}
 	return server.ListenAndServe()
 }
 
@@ -199,6 +204,19 @@ func contentType(path string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func openURL(u string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", u)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
+	default:
+		cmd = exec.Command("xdg-open", u)
+	}
+	_ = cmd.Start()
 }
 
 func sanitizeRequestPath(requestPath string) (string, bool) {
