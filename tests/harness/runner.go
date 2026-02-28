@@ -33,12 +33,16 @@ func BuildWithZola(zolaBin string, root string, configName string, outputDir str
 		return fmt.Errorf("zola binary not found: %w", err)
 	}
 
-	args := []string{"build", "--root", root, "--config", configName, "--output-dir", outputDir, "--force"}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	args := []string{"--root", absRoot, "--config", configName, "build", "--output-dir", outputDir, "--force"}
 	if drafts {
 		args = append(args, "--drafts")
 	}
 	cmd := exec.Command(zolaBin, args...)
-	cmd.Dir = root
+	cmd.Dir = absRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("zola build failed: %w: %s", err, string(out))
