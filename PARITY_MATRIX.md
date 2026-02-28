@@ -54,7 +54,7 @@ Status legend:
 - aliases/404/robots/sitemap/feed: done
 - search index generation: done
 - static + colocated assets: done
-- image processing parity: todo
+- image processing parity: partial
 
 ## Serve Pipeline
 
@@ -73,3 +73,9 @@ Status legend:
 - unit tests for core modules: done
 - vendored fixture integration tests: done
 - optional differential parity tests vs zola: done
+
+## Tooling
+
+- CI on Linux/macOS: done
+- standard fmt/vet/test make targets: done
+- contributor workflow rules: done
