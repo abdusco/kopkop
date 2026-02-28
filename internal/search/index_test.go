@@ -64,3 +64,21 @@ func TestBuildIndex_WritesPerLanguageJSForMultilingualSites(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.Contains(string(en), "window.searchIndex[\"en\"]"))
 }
+
+func TestBuildIndexForLanguages_FiltersLanguages(t *testing.T) {
+	t.Parallel()
+
+	lib := content.NewLibrary()
+	lib.Pages["a.md"] = &content.Page{Meta: content.PageFrontMatter{Title: "EN"}, Permalink: "https://example.com/en/", Content: "en", Lang: "en"}
+	lib.Pages["b.fr.md"] = &content.Page{Meta: content.PageFrontMatter{Title: "FR"}, Permalink: "https://example.com/fr/", Content: "fr", Lang: "fr"}
+
+	out := t.TempDir()
+	require.NoError(t, BuildIndexForLanguages(lib, out, "search_index.json", map[string]bool{"en": true}))
+
+	require.FileExists(t, filepath.Join(out, "search_index.json"))
+	require.NoFileExists(t, filepath.Join(out, "search_index.fr.js"))
+	b, err := os.ReadFile(filepath.Join(out, "search_index.json"))
+	require.NoError(t, err)
+	require.Contains(t, string(b), "\"lang\":\"en\"")
+	require.NotContains(t, string(b), "\"lang\":\"fr\"")
+}

@@ -164,7 +164,13 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if s.Config.BuildSearchIndex || s.Config.Search.BuildIndex {
-		if err := search.BuildIndex(s.Library, s.OutputPath, s.Config.Search.IndexPath); err != nil {
+		enabledLangs := map[string]bool{s.Config.DefaultLanguage: true}
+		for lang, opts := range s.Config.Languages {
+			if opts.BuildSearchIndex {
+				enabledLangs[lang] = true
+			}
+		}
+		if err := search.BuildIndexForLanguages(s.Library, s.OutputPath, s.Config.Search.IndexPath, enabledLangs); err != nil {
 			return err
 		}
 	}

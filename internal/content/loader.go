@@ -135,7 +135,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	components := splitComponents(filepath.Dir(relPath))
 	slug, extractedDate := pathing.ComputePageSlug(meta.Slug, filePathForSlug, cfg.PathsKeepDates)
 	hasColocated, _ := hasColocatedAssets(absPath)
-	if baseName == "index" && !hasColocated {
+	if baseName == "index" {
 		slug = ""
 	}
 	p := pathing.ComputePagePath(meta.Path, slug, components, strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)), hasColocated, lang, cfg.DefaultLanguage)

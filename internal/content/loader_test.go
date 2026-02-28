@@ -132,3 +132,26 @@ func TestLoadLibrary_AllowsMarkdownWithoutFrontMatter(t *testing.T) {
 	require.Contains(t, lib.Pages, "plain.md")
 	assert.Equal(t, "Plain body", lib.Pages["plain.md"].RawContent)
 }
+
+func TestLoadLibrary_ColocatedIndexPageKeepsSectionPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "posts", "with-assets"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "posts", "_index.md"), []byte("+++\ntitle='Posts'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "posts", "with-assets", "index.md"), []byte("+++\ntitle='With Assets'\n+++\nHello"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "posts", "with-assets", "with.js"), []byte("console.log('x')"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+
+	pg := lib.Pages["posts/with-assets/index.md"]
+	require.NotNil(t, pg)
+	assert.Equal(t, "/posts/with-assets/", pg.Path)
+	assert.Equal(t, "https://example.com/posts/with-assets/", pg.Permalink)
+	require.NotEmpty(t, pg.Assets)
+}

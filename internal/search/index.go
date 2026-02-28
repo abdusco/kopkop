@@ -20,6 +20,10 @@ type Entry struct {
 }
 
 func BuildIndex(lib *content.Library, outputPath string, filename string) error {
+	return BuildIndexForLanguages(lib, outputPath, filename, nil)
+}
+
+func BuildIndexForLanguages(lib *content.Library, outputPath string, filename string, enabledLangs map[string]bool) error {
 	byLang := map[string][]Entry{}
 	paths := make([]string, 0, len(lib.Pages))
 	for p := range lib.Pages {
@@ -28,6 +32,9 @@ func BuildIndex(lib *content.Library, outputPath string, filename string) error 
 	sort.Strings(paths)
 	for _, p := range paths {
 		pg := lib.Pages[p]
+		if len(enabledLangs) > 0 && !enabledLangs[pg.Lang] {
+			continue
+		}
 		summary := ""
 		if pg.Summary != nil {
 			summary = *pg.Summary
