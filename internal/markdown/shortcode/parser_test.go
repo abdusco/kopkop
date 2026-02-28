@@ -135,3 +135,22 @@ func TestParse_MultipleNthValues(t *testing.T) {
 	assert.Equal(t, 1, shortcodes[1].Nth)
 	assert.Equal(t, 2, shortcodes[2].Nth)
 }
+
+func TestShortcode_UpdateRange(t *testing.T) {
+	t.Parallel()
+
+	sc := Shortcode{Span: [2]int{10, 20}}
+	// 6 -> 10 in length so +4 on both sides
+	sc.UpdateRange([2]int{2, 8}, 10)
+	assert.Equal(t, [2]int{14, 24}, sc.Span)
+	// after shortcode so no impact
+	sc.UpdateRange([2]int{25, 30}, 30)
+	assert.Equal(t, [2]int{14, 24}, sc.Span)
+	// +4 again
+	sc.UpdateRange([2]int{5, 11}, 10)
+	assert.Equal(t, [2]int{18, 28}, sc.Span)
+
+	bug := Shortcode{Span: [2]int{42, 65}}
+	bug.UpdateRange([2]int{9, 32}, 3)
+	assert.Equal(t, [2]int{22, 45}, bug.Span)
+}

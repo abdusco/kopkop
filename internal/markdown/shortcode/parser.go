@@ -17,6 +17,30 @@ type Shortcode struct {
 	Inner []Shortcode
 }
 
+// UpdateRange shifts this shortcode span based on an already applied transform.
+// transformSpan marks where a placeholder used to be; renderedLength is replacement length.
+func (s *Shortcode) UpdateRange(transformSpan [2]int, renderedLength int) {
+	if s.Span[0] < transformSpan[0] {
+		return
+	}
+
+	renderedEnd := transformSpan[0] + renderedLength
+	delta := abs(renderedEnd - transformSpan[1])
+
+	if transformSpan[1] < renderedEnd {
+		s.Span = [2]int{s.Span[0] + delta, s.Span[1] + delta}
+	} else {
+		s.Span = [2]int{s.Span[0] - delta, s.Span[1] - delta}
+	}
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 type invocationCounter struct {
 	count map[string]int
 }
