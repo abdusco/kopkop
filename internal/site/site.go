@@ -56,6 +56,7 @@ type Site struct {
 
 var htmlSpaceRe = regexp.MustCompile(`\s+`)
 var shortcodeParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(shortcode.Placeholder) + `\s*</p>`)
+var continueReadingMarkerRe = regexp.MustCompile(`(?s)<span\s+id=["']continue-reading["']\s*></span>`)
 
 func New(basePath string, configPath string) (*Site, error) {
 	cfg, err := config.FromFile(configPath)
@@ -1103,7 +1104,7 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang
 		b.WriteString("</id>\n")
 
 		if p.Summary != nil {
-			summary := strings.ReplaceAll(*p.Summary, `<span id="continue-reading"></span>`, "")
+			summary := continueReadingMarkerRe.ReplaceAllString(*p.Summary, "")
 			b.WriteString("        <summary type=\"html\">")
 			b.WriteString(xmlEscape(summary))
 			b.WriteString("</summary>\n")
@@ -1228,8 +1229,10 @@ func (s *Site) renderFeed() error {
 		if !sec.Meta.GenerateFeed && !sec.Meta.GenerateFeeds {
 			continue
 		}
-		secPages := make([]*content.Page, 0, len(sec.Pages))
-		for _, rel := range sec.Pages {
+		secEntries := s.sectionPageEntries(sec)
+		secPages := make([]*content.Page, 0, len(secEntries))
+		for _, entry := range secEntries {
+			rel, _ := entry["relative_path"].(string)
 			if p := s.Library.Pages[rel]; p != nil {
 				secPages = append(secPages, p)
 			}
