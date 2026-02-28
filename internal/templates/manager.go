@@ -14,6 +14,8 @@ import (
 
 	minijinja "github.com/mitsuhiko/minijinja/minijinja-go/v2"
 	"github.com/mitsuhiko/minijinja/minijinja-go/v2/value"
+
+	"github.com/abdusco/kopkop/internal/imageproc"
 )
 
 type Manager struct {
@@ -51,7 +53,7 @@ func LoadManager(basePath string, theme string) (*Manager, error) {
 		mgr.Available[n] = struct{}{}
 	}
 
-	registerDefaultHelpers(mgr.Engine.Env(), basePath)
+	registerDefaultHelpers(mgr.Engine.Env(), basePath, filepath.Join(basePath, "public"))
 	return mgr, nil
 }
 
@@ -147,7 +149,8 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 	return defs
 }
 
-func registerDefaultHelpers(env *minijinja.Environment, basePath string) {
+func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputPath string) {
+	img := imageproc.New(basePath, outputPath)
 	env.AddFunction("now", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		_ = state
 		_ = args
@@ -209,6 +212,52 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string) {
 		}
 		sum := sha256.Sum256(data)
 		return value.FromString(fmt.Sprintf("%x", sum[:])), nil
+	})
+
+	env.AddFunction("get_image_metadata", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		_ = kwargs
+		if len(args) == 0 {
+			return value.Undefined(), fmt.Errorf("get_image_metadata expects image path")
+		}
+		p, ok := args[0].AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("get_image_metadata path must be string")
+		}
+		md, err := img.GetMetadata(p)
+		if err != nil {
+			return value.Undefined(), err
+		}
+		return value.FromMap(map[string]value.Value{
+			"width":  value.FromInt(int64(md.Width)),
+			"height": value.FromInt(int64(md.Height)),
+			"format": value.FromString(md.Format),
+		}), nil
+	})
+
+	env.AddFunction("resize_image", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		_ = kwargs
+		if len(args) < 3 {
+			return value.Undefined(), fmt.Errorf("resize_image expects path, width, height")
+		}
+		p, ok := args[0].AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("resize_image path must be string")
+		}
+		w, ok := args[1].AsInt()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("resize_image width must be int")
+		}
+		h, ok := args[2].AsInt()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("resize_image height must be int")
+		}
+		url, err := img.Resize(p, int(w), int(h))
+		if err != nil {
+			return value.Undefined(), err
+		}
+		return value.FromString(url), nil
 	})
 
 	env.AddFilter("base64_encode", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {

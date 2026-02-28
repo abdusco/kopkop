@@ -1,6 +1,9 @@
 package templates
 
 import (
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,8 +43,20 @@ func TestManagerHelpers(t *testing.T) {
 
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "images"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "data.txt"), []byte("hello"), 0o644))
+	img := image.NewRGBA(image.Rect(0, 0, 10, 5))
+	for y := 0; y < 5; y++ {
+		for x := 0; x < 10; x++ {
+			img.Set(x, y, color.RGBA{R: 255, A: 255})
+		}
+	}
+	imgFile, err := os.Create(filepath.Join(root, "images", "sample.png"))
+	require.NoError(t, err)
+	require.NoError(t, png.Encode(imgFile, img))
+	require.NoError(t, imgFile.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test.txt"), []byte(`{{ "abc"|base64_encode }}|{{ "YWJj"|base64_decode }}|{{ "a1b2"|regex_replace("[0-9]", "") }}|{{ get_url("posts/hello") }}|{{ load_data("data.txt") }}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test-image.txt"), []byte(`{% set md = get_image_metadata("images/sample.png") %}{{ md.width }}x{{ md.height }}|{{ resize_image("images/sample.png", 4, 2) }}`), 0o644))
 
 	mgr, err := LoadManager(root, "")
 	require.NoError(t, err)
@@ -49,4 +64,9 @@ func TestManagerHelpers(t *testing.T) {
 	out, err := mgr.Render("test.txt", map[string]any{})
 	require.NoError(t, err)
 	assert.Equal(t, "YWJj|abc|ab|/posts/hello|hello", out)
+
+	imgOut, err := mgr.Render("test-image.txt", map[string]any{})
+	require.NoError(t, err)
+	assert.Contains(t, imgOut, "10x5|")
+	assert.Contains(t, imgOut, "/processed_images/")
 }
