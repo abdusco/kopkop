@@ -155,3 +155,41 @@ func TestLoadLibrary_ColocatedIndexPageKeepsSectionPath(t *testing.T) {
 	assert.Equal(t, "https://example.com/posts/with-assets/", pg.Permalink)
 	require.NotEmpty(t, pg.Assets)
 }
+
+func TestLoadLibrary_DraftSectionHidesChildPages(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "secret"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "secret", "_index.md"), []byte("+++\ntitle='Secret'\ndraft=true\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "secret", "page.md"), []byte("+++\ntitle='Page'\n+++\nhello"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+	require.NotContains(t, lib.Sections, "secret/_index.md")
+	require.NotContains(t, lib.Pages, "secret/page.md")
+}
+
+func TestLoadLibrary_SectionFrenchPathHasSlash(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "blog"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "blog", "_index.fr.md"), []byte("+++\ntitle='Blog FR'\n+++\n"), 0o644))
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+	cfg.DefaultLanguage = "en"
+	cfg.Languages = map[string]config.LanguageOptions{"fr": {Title: "Francais"}}
+
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	require.NoError(t, err)
+	sec := lib.Sections["blog/_index.fr.md"]
+	require.NotNil(t, sec)
+	assert.Equal(t, "/fr/blog/", sec.Path)
+}

@@ -8,10 +8,12 @@ type PageFrontMatter struct {
 	Slug        string              `toml:"slug" yaml:"slug"`
 	Path        string              `toml:"path" yaml:"path"`
 	Date        any                 `toml:"date" yaml:"date"`
+	Weight      int                 `toml:"weight" yaml:"weight"`
 	Template    string              `toml:"template" yaml:"template"`
 	Aliases     []string            `toml:"aliases" yaml:"aliases"`
 	Taxonomies  map[string][]string `toml:"taxonomies" yaml:"taxonomies"`
 	Draft       bool                `toml:"draft" yaml:"draft"`
+	Render      *bool               `toml:"render" yaml:"render"`
 }
 
 type SectionFrontMatter struct {
@@ -26,6 +28,9 @@ type SectionFrontMatter struct {
 	PaginateReversed bool     `toml:"paginate_reversed" yaml:"paginate_reversed"`
 	GenerateFeed     bool     `toml:"generate_feed" yaml:"generate_feed"`
 	GenerateFeeds    bool     `toml:"generate_feeds" yaml:"generate_feeds"`
+	Transparent      bool     `toml:"transparent" yaml:"transparent"`
+	Render           *bool    `toml:"render" yaml:"render"`
+	Draft            bool     `toml:"draft" yaml:"draft"`
 }
 
 type Page struct {

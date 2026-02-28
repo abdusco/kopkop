@@ -282,6 +282,84 @@ generate_robots_txt = false
 	require.NoError(t, err)
 }
 
+func TestSiteBuild_SkipsRenderFalsePageAndSection(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "hidden"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+compile_sass = false
+generate_sitemap = false
+generate_feeds = false
+build_search_index = false
+generate_robots_txt = false
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\nWelcome"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "no-render.md"), []byte("+++\ntitle='No render'\nrender=false\n+++\nBody"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "hidden", "_index.md"), []byte("+++\ntitle='Hidden'\nrender=false\n+++\nHidden"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "hidden", "page.md"), []byte("+++\ntitle='Child'\n+++\nBody"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	_, err = os.Stat(filepath.Join(root, "public", "no-render", "index.html"))
+	require.Error(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "hidden", "index.html"))
+	require.Error(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "hidden", "page", "index.html"))
+	require.NoError(t, err)
+}
+
+func TestSiteBuild_RendersTaxonomyForLanguagePrefix(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "blog"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+compile_sass = false
+generate_sitemap = false
+generate_feeds = true
+build_search_index = false
+generate_robots_txt = false
+default_language = "en"
+taxonomies = [{name = "authors", feed = true}]
+
+[languages.fr]
+generate_feeds = true
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\nWelcome"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "blog", "something.fr.md"), []byte("+++\ntitle='Bonjour'\n[taxonomies]\nauthors=['Vincent']\n+++\nHi"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "taxonomy_list.html"), []byte("<html><body>list</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "taxonomy_single.html"), []byte("<html><body>{{ taxonomy.term }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "atom.xml"), []byte("<?xml version='1.0'?><feed></feed>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	_, err = os.Stat(filepath.Join(root, "public", "fr", "authors", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "fr", "authors", "vincent", "index.html"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "public", "fr", "atom.xml"))
+	require.NoError(t, err)
+}
+
 func collectFiles(t *testing.T, root string) []string {
 	t.Helper()
 	files := []string{}

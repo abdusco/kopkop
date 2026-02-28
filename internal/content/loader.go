@@ -93,6 +93,10 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 		return nil, err
 	}
 
+	if !opts.IncludeDrafts && !cfg.EnableDraftsInBuild {
+		filterDraftSections(lib)
+	}
+
 	attachPagesToSections(lib)
 	attachSubsections(lib)
 	attachTranslations(lib, cfg.DefaultLanguage)
@@ -192,7 +196,8 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 		p = "/" + filepath.ToSlash(dir) + "/"
 	}
 	if lang != cfg.DefaultLanguage {
-		p = "/" + lang + strings.TrimPrefix(p, "/")
+		p = "/" + lang + "/" + strings.TrimPrefix(p, "/")
+		p = strings.ReplaceAll(p, "//", "/")
 		if !strings.HasSuffix(p, "/") {
 			p += "/"
 		}
@@ -219,7 +224,60 @@ func attachPagesToSections(lib *Library) {
 			sec.Pages = append(sec.Pages, rel)
 		}
 	}
+
 	for _, sec := range lib.Sections {
+		if !sec.Meta.Transparent {
+			continue
+		}
+		parent := parentSectionFromSectionPath(sec.RelativePath, sectionLangSuffix(sec.RelativePath))
+		if target, ok := lib.Sections[parent]; ok {
+			target.Pages = append(target.Pages, sec.Pages...)
+		}
+	}
+
+	for _, sec := range lib.Sections {
+		dedup := map[string]struct{}{}
+		uniq := make([]string, 0, len(sec.Pages))
+		for _, p := range sec.Pages {
+			if _, ok := dedup[p]; ok {
+				continue
+			}
+			dedup[p] = struct{}{}
+			uniq = append(uniq, p)
+		}
+		sec.Pages = uniq
+
+		sortBy := strings.ToLower(strings.TrimSpace(sec.Meta.SortBy))
+		if sortBy == "date" {
+			sort.SliceStable(sec.Pages, func(i, j int) bool {
+				pi := lib.Pages[sec.Pages[i]]
+				pj := lib.Pages[sec.Pages[j]]
+				if pi.Date != nil && pj.Date != nil {
+					if !pi.Date.Equal(*pj.Date) {
+						return pi.Date.After(*pj.Date)
+					}
+				}
+				if pi.Date != nil && pj.Date == nil {
+					return true
+				}
+				if pi.Date == nil && pj.Date != nil {
+					return false
+				}
+				return sec.Pages[i] < sec.Pages[j]
+			})
+			continue
+		}
+		if sortBy == "weight" {
+			sort.SliceStable(sec.Pages, func(i, j int) bool {
+				pi := lib.Pages[sec.Pages[i]]
+				pj := lib.Pages[sec.Pages[j]]
+				if pi.Meta.Weight != pj.Meta.Weight {
+					return pi.Meta.Weight < pj.Meta.Weight
+				}
+				return sec.Pages[i] < sec.Pages[j]
+			})
+			continue
+		}
 		sort.SliceStable(sec.Pages, func(i, j int) bool {
 			return sec.Pages[i] < sec.Pages[j]
 		})
@@ -234,7 +292,8 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 		for taxName, values := range p.Meta.Taxonomies {
 			tax, ok := lib.Taxonomies[taxName]
 			if !ok {
-				continue
+				tax = &Taxonomy{Name: taxName, Terms: map[string]*TaxonomyTerm{}}
+				lib.Taxonomies[taxName] = tax
 			}
 			for _, v := range values {
 				term := tax.Terms[v]
@@ -246,6 +305,80 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 			}
 		}
 	}
+}
+
+func filterDraftSections(lib *Library) {
+	hiddenPrefixes := []string{}
+	for rel, sec := range lib.Sections {
+		if sec.Meta.Draft {
+			dir := filepath.ToSlash(filepath.Dir(rel))
+			if dir == "." {
+				dir = ""
+			}
+			hiddenPrefixes = append(hiddenPrefixes, dir)
+			delete(lib.Sections, rel)
+		}
+	}
+	for rel := range lib.Sections {
+		dir := filepath.ToSlash(filepath.Dir(rel))
+		if dir == "." {
+			dir = ""
+		}
+		for _, prefix := range hiddenPrefixes {
+			if prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
+				delete(lib.Sections, rel)
+				break
+			}
+		}
+	}
+	if len(hiddenPrefixes) == 0 {
+		return
+	}
+	for rel := range lib.Pages {
+		dir := filepath.ToSlash(filepath.Dir(rel))
+		if dir == "." {
+			dir = ""
+		}
+		for _, prefix := range hiddenPrefixes {
+			if prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
+				delete(lib.Pages, rel)
+				break
+			}
+		}
+	}
+}
+
+func parentSectionFromSectionPath(sectionRelPath string, lang string) string {
+	dir := filepath.ToSlash(filepath.Dir(sectionRelPath))
+	if dir == "." || dir == "" {
+		if lang != "" {
+			return "_index." + lang + ".md"
+		}
+		return "_index.md"
+	}
+	parentDir := filepath.ToSlash(filepath.Dir(dir))
+	if parentDir == "." {
+		parentDir = ""
+	}
+	if parentDir == "" {
+		if lang != "" {
+			return "_index." + lang + ".md"
+		}
+		return "_index.md"
+	}
+	if lang != "" {
+		return fmt.Sprintf("%s/_index.%s.md", parentDir, lang)
+	}
+	return fmt.Sprintf("%s/_index.md", parentDir)
+}
+
+func sectionLangSuffix(sectionRelPath string) string {
+	base := filepath.Base(sectionRelPath)
+	parts := strings.Split(base, ".")
+	if len(parts) >= 3 {
+		return parts[len(parts)-2]
+	}
+	return ""
 }
 
 func attachSubsections(lib *Library) {

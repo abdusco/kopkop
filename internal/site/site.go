@@ -279,8 +279,14 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 
 	for _, rel := range paths {
 		pg := s.Library.Pages[rel]
+		if pg.Meta.Render != nil && !*pg.Meta.Render {
+			continue
+		}
 		outPath := filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html")
 		artifact := artifacts[outPath]
+		if artifact.Path == "" {
+			continue
+		}
 		if err := s.writeOutput(outPath, artifact.HTML); err != nil {
 			return err
 		}
@@ -412,6 +418,9 @@ func (s *Site) renderSections(liveReloadURL string) error {
 	sort.Strings(paths)
 	for _, rel := range paths {
 		sec := s.Library.Sections[rel]
+		if sec.Meta.Render != nil && !*sec.Meta.Render {
+			continue
+		}
 		tpl := "section.html"
 		if sec.Meta.Template != "" {
 			tpl = sec.Meta.Template
@@ -558,62 +567,87 @@ func sectionPagerPermalink(sectionPath, sectionPermalink, paginatePath string, i
 
 func (s *Site) renderTaxonomies(liveReloadURL string) error {
 	for _, tax := range s.Library.Taxonomies {
-		terms := make([]map[string]any, 0, len(tax.Terms))
+		termsByLang := map[string]map[string][]map[string]any{}
 		for termName, term := range tax.Terms {
-			pathSlug := slugifyURLSegment(termName)
-			terms = append(terms, map[string]any{
-				"name":      termName,
-				"slug":      pathSlug,
-				"path":      "/" + slugifyURLSegment(tax.Name) + "/" + pathSlug + "/",
-				"permalink": strings.TrimRight(s.Config.BaseURL, "/") + "/" + slugifyURLSegment(tax.Name) + "/" + pathSlug + "/",
-				"pages":     len(term.Pages),
-			})
-		}
-		sort.SliceStable(terms, func(i, j int) bool {
-			return terms[i]["name"].(string) < terms[j]["name"].(string)
-		})
-		ctxList := s.baseTemplateContext(s.Config.DefaultLanguage)
-		ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": terms}
-		listHTML, listErr := s.Templates.Render("taxonomy_list.html", ctxList)
-		if listErr != nil {
-			listHTML = "<html><body><h1>" + tax.Name + "</h1></body></html>"
-		}
-		listHTML = injectLiveReload(listHTML, liveReloadURL)
-		if err := s.writeOutput(filepath.Join(slugifyURLSegment(tax.Name), "index.html"), listHTML); err != nil {
-			return err
-		}
-
-		for termName, term := range tax.Terms {
-			entries := make([]map[string]any, 0, len(term.Pages))
 			for _, rel := range term.Pages {
 				pg := s.Library.Pages[rel]
-				entries = append(entries, map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink})
+				if pg == nil {
+					continue
+				}
+				if termsByLang[pg.Lang] == nil {
+					termsByLang[pg.Lang] = map[string][]map[string]any{}
+				}
+				termsByLang[pg.Lang][termName] = append(termsByLang[pg.Lang][termName], map[string]any{"title": pg.Meta.Title, "permalink": pg.Permalink, "path": pg.Path})
 			}
-			pathSlug := slugifyURLSegment(termName)
-			ctx := s.baseTemplateContext(s.Config.DefaultLanguage)
-			ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
-			html, err := s.Templates.Render("taxonomy_single.html", ctx)
-			if err != nil {
-				html = "<html><body><h1>" + tax.Name + ": " + termName + "</h1></body></html>"
+		}
+
+		for lang, termsMap := range termsByLang {
+			termItems := make([]map[string]any, 0, len(termsMap))
+			for termName, entries := range termsMap {
+				pathSlug := slugifyURLSegment(termName)
+				termItems = append(termItems, map[string]any{
+					"name":      termName,
+					"slug":      pathSlug,
+					"path":      taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug),
+					"permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug),
+					"pages":     len(entries),
+				})
 			}
-			html = injectLiveReload(html, liveReloadURL)
-			taxPath := slugifyURLSegment(tax.Name)
-			if err := s.writeOutput(filepath.Join(taxPath, pathSlug, "index.html"), html); err != nil {
+			sort.SliceStable(termItems, func(i, j int) bool {
+				return termItems[i]["name"].(string) < termItems[j]["name"].(string)
+			})
+
+			ctxList := s.baseTemplateContext(lang)
+			ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": termItems}
+			listHTML, listErr := s.Templates.Render("taxonomy_list.html", ctxList)
+			if listErr != nil {
+				listHTML = "<html><body><h1>" + tax.Name + "</h1></body></html>"
+			}
+			listHTML = injectLiveReload(listHTML, liveReloadURL)
+			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, ""), "/"), "index.html"), listHTML); err != nil {
 				return err
 			}
-			if s.taxonomyFeedEnabled(tax.Name) {
-				feedCtx := map[string]any{"pages": entries, "config": map[string]any{"title": s.Config.Title}, "taxonomy": map[string]any{"name": tax.Name, "term": termName}}
-				atom, feedErr := s.Templates.Render("atom.xml", feedCtx)
-				if feedErr != nil {
-					atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+
+			for termName, entries := range termsMap {
+				pathSlug := slugifyURLSegment(termName)
+				ctx := s.baseTemplateContext(lang)
+				ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
+				html, err := s.Templates.Render("taxonomy_single.html", ctx)
+				if err != nil {
+					html = "<html><body><h1>" + tax.Name + ": " + termName + "</h1></body></html>"
 				}
-				if err := s.writeOutput(filepath.Join(taxPath, pathSlug, "atom.xml"), atom); err != nil {
+				html = injectLiveReload(html, liveReloadURL)
+				if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), "index.html"), html); err != nil {
 					return err
+				}
+				if s.taxonomyFeedEnabled(tax.Name, lang) {
+					feedCtx := map[string]any{"pages": entries, "config": map[string]any{"title": s.Config.Title}, "taxonomy": map[string]any{"name": tax.Name, "term": termName}}
+					atom, feedErr := s.Templates.Render("atom.xml", feedCtx)
+					if feedErr != nil {
+						atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+					}
+					if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), "atom.xml"), atom); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
 	return nil
+}
+
+func taxonomyPathForLang(lang string, defaultLang string, taxName string, termSlug string) string {
+	base := "/" + slugifyURLSegment(taxName)
+	if lang != "" && lang != defaultLang {
+		base = "/" + lang + base
+	}
+	if termSlug != "" {
+		base += "/" + termSlug
+	}
+	if !strings.HasSuffix(base, "/") {
+		base += "/"
+	}
+	return base
 }
 
 func (s *Site) renderSitemap() error {
@@ -631,12 +665,20 @@ func (s *Site) renderSitemap() error {
 
 func (s *Site) renderFeed() error {
 	pages := make([]map[string]any, 0, len(s.Library.Pages))
+	pagesByLang := map[string][]map[string]any{}
 	for _, p := range s.Library.Pages {
-		pages = append(pages, map[string]any{"title": p.Meta.Title, "permalink": p.Permalink})
+		entry := map[string]any{"title": p.Meta.Title, "permalink": p.Permalink}
+		pages = append(pages, entry)
+		pagesByLang[p.Lang] = append(pagesByLang[p.Lang], entry)
 	}
 	sort.SliceStable(pages, func(i, j int) bool {
 		return pages[i]["permalink"].(string) < pages[j]["permalink"].(string)
 	})
+	for lang := range pagesByLang {
+		sort.SliceStable(pagesByLang[lang], func(i, j int) bool {
+			return pagesByLang[lang][i]["permalink"].(string) < pagesByLang[lang][j]["permalink"].(string)
+		})
+	}
 	atom, err := s.Templates.Render("atom.xml", map[string]any{"pages": pages, "config": map[string]any{"title": s.Config.Title}})
 	if err != nil {
 		atom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
@@ -644,6 +686,24 @@ func (s *Site) renderFeed() error {
 	if err := s.writeOutput("atom.xml", atom); err != nil {
 		return err
 	}
+
+	for lang, langPages := range pagesByLang {
+		if lang == s.Config.DefaultLanguage {
+			continue
+		}
+		opts, ok := s.Config.Languages[lang]
+		if !ok || !opts.GenerateFeeds {
+			continue
+		}
+		langAtom, langErr := s.Templates.Render("atom.xml", map[string]any{"pages": langPages, "config": map[string]any{"title": s.Config.Title}, "lang": lang})
+		if langErr != nil {
+			langAtom = "<?xml version=\"1.0\"?><feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>"
+		}
+		if err := s.writeOutput(filepath.Join(lang, "atom.xml"), langAtom); err != nil {
+			return err
+		}
+	}
+
 	for _, sec := range s.Library.Sections {
 		if !sec.Meta.GenerateFeed && !sec.Meta.GenerateFeeds {
 			continue
@@ -660,7 +720,16 @@ func (s *Site) renderFeed() error {
 	return nil
 }
 
-func (s *Site) taxonomyFeedEnabled(name string) bool {
+func (s *Site) taxonomyFeedEnabled(name string, lang string) bool {
+	if lang != "" && lang != s.Config.DefaultLanguage {
+		if lo, ok := s.Config.Languages[lang]; ok {
+			for _, tx := range lo.Taxonomies {
+				if tx.Name == name {
+					return tx.Feed
+				}
+			}
+		}
+	}
 	for _, tx := range s.Config.Taxonomies {
 		if tx.Name == name {
 			return tx.Feed
@@ -713,7 +782,31 @@ func (s *Site) renderRobots() error {
 }
 
 func (s *Site) renderAliases() error {
+	for _, sec := range s.Library.Sections {
+		for _, alias := range sec.Meta.Aliases {
+			redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": sec.Permalink})
+			if err != nil {
+				redirect = "<meta http-equiv=\"refresh\" content=\"0; url=" + sec.Permalink + "\">"
+			}
+			aliasPath := strings.TrimPrefix(alias, "/")
+			file := "index.html"
+			if strings.HasSuffix(aliasPath, ".html") {
+				file = filepath.Base(aliasPath)
+				aliasPath = filepath.Dir(aliasPath)
+			}
+			if aliasPath == "." {
+				aliasPath = ""
+			}
+			if err := s.writeOutput(filepath.Join(aliasPath, file), redirect); err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, p := range s.Library.Pages {
+		if p.Meta.Render != nil && !*p.Meta.Render {
+			continue
+		}
 		for _, alias := range p.Meta.Aliases {
 			redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": p.Permalink})
 			if err != nil {

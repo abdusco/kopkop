@@ -41,9 +41,10 @@ type TaxonomyConfig struct {
 }
 
 type LanguageOptions struct {
-	Title            string `toml:"title"`
-	BuildSearchIndex bool   `toml:"build_search_index"`
-	GenerateFeeds    bool   `toml:"generate_feeds"`
+	Title            string           `toml:"title"`
+	BuildSearchIndex bool             `toml:"build_search_index"`
+	GenerateFeeds    bool             `toml:"generate_feeds"`
+	Taxonomies       []TaxonomyConfig `toml:"taxonomies"`
 }
 
 type Config struct {
