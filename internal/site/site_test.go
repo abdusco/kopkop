@@ -40,6 +40,19 @@ func TestFixtureTemplateRender_PageTemplateDoesNotError(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestFixturePageTemplate_InheritsFromAncestorSection(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..", "tests", "fixtures", "zola", "test_site")
+	s, err := New(root, filepath.Join(root, "config.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+
+	pg := s.Library.Pages["applying_page_template/another_section/post.md"]
+	require.NotNil(t, pg)
+	require.Equal(t, "page_template.html", s.pageTemplateFor(pg))
+}
+
 func TestSiteBuild_Minimal(t *testing.T) {
 	t.Parallel()
 

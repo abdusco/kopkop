@@ -239,12 +239,7 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 				continue
 			}
 
-			tplName := "page.html"
-			if pg.Meta.Template != "" {
-				tplName = pg.Meta.Template
-			} else if sec, ok := s.Library.Sections[pg.ParentSection]; ok && sec.Meta.PageTemplate != "" {
-				tplName = sec.Meta.PageTemplate
-			}
+			tplName := s.pageTemplateFor(pg)
 			ctx := s.baseTemplateContext(pg.Lang)
 			ctx["page"] = s.pageView(rel, pg)
 			if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
@@ -608,6 +603,53 @@ func (s *Site) pageAnchorLinksEnabled(pg *content.Page) bool {
 		base = s.anchorLinksEnabled(sec.Meta.InsertAnchorLinks, base)
 	}
 	return s.anchorLinksEnabled(pg.Meta.InsertAnchorLinks, base)
+}
+
+func sectionParentRel(sectionRelPath string) string {
+	lang := ""
+	parts := strings.Split(filepath.Base(sectionRelPath), ".")
+	if len(parts) >= 3 {
+		lang = parts[len(parts)-2]
+	}
+	dir := filepath.ToSlash(filepath.Dir(sectionRelPath))
+	if dir == "." || dir == "" {
+		if lang == "" {
+			return "_index.md"
+		}
+		return "_index." + lang + ".md"
+	}
+	parentDir := filepath.ToSlash(filepath.Dir(dir))
+	if parentDir == "." {
+		parentDir = ""
+	}
+	if parentDir == "" {
+		if lang == "" {
+			return "_index.md"
+		}
+		return "_index." + lang + ".md"
+	}
+	if lang == "" {
+		return parentDir + "/_index.md"
+	}
+	return parentDir + "/_index." + lang + ".md"
+}
+
+func (s *Site) pageTemplateFor(pg *content.Page) string {
+	if pg.Meta.Template != "" {
+		return pg.Meta.Template
+	}
+	for secRel := pg.ParentSection; secRel != ""; {
+		sec, ok := s.Library.Sections[secRel]
+		if ok && sec.Meta.PageTemplate != "" {
+			return sec.Meta.PageTemplate
+		}
+		next := sectionParentRel(secRel)
+		if next == secRel {
+			break
+		}
+		secRel = next
+	}
+	return "page.html"
 }
 
 func (s *Site) redirectTargetURL(target string) string {
