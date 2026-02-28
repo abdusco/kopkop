@@ -432,7 +432,16 @@ func attachSubsections(lib *Library) {
 				}
 			}
 		}
-		sort.Strings(lib.Sections[parentKey].Subsections)
+		sort.SliceStable(lib.Sections[parentKey].Subsections, func(i, j int) bool {
+			left := lib.Sections[parentKey].Subsections[i]
+			right := lib.Sections[parentKey].Subsections[j]
+			lw := lib.Sections[left].Meta.Weight
+			rw := lib.Sections[right].Meta.Weight
+			if lw != rw {
+				return lw < rw
+			}
+			return left < right
+		})
 	}
 }
 

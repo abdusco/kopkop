@@ -233,6 +233,12 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 				pg.TOC = append(pg.TOC, content.Heading{ID: h.ID, Level: h.Level, Title: h.Title})
 			}
 
+			if strings.TrimSpace(pg.Meta.RedirectTo) != "" {
+				redirect := s.renderRedirect(s.redirectTargetURL(pg.Meta.RedirectTo))
+				results <- pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
+				continue
+			}
+
 			tplName := "page.html"
 			if pg.Meta.Template != "" {
 				tplName = pg.Meta.Template
@@ -412,7 +418,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		Permalinks:           s.Library.Permalinks,
 		CurrentPagePath:      pg.RelativePath,
 		CurrentPagePermalink: pg.Permalink,
-		InsertAnchorLinks:    s.Config.Markdown.InsertAnchorLinks,
+		InsertAnchorLinks:    s.pageAnchorLinksEnabled(pg),
 	})
 	if err != nil {
 		return markdown.Rendered{}, err
@@ -456,7 +462,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			Permalinks:           s.Library.Permalinks,
 			CurrentPagePath:      sec.RelativePath,
 			CurrentPagePermalink: sec.Permalink,
-			InsertAnchorLinks:    s.Config.Markdown.InsertAnchorLinks,
+			InsertAnchorLinks:    s.sectionAnchorLinksEnabled(sec),
 		})
 		if secErr == nil {
 			sec.Content = renderedSection.Body
@@ -470,6 +476,16 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		}
 		entries := s.sectionPageEntries(sec)
 		for _, plan := range s.sectionRenderPlans(sec, entries) {
+			if strings.TrimSpace(sec.Meta.RedirectTo) != "" {
+				if plan.OutputPath == filepath.Join(strings.TrimPrefix(sec.Path, "/"), "index.html") {
+					redirect := s.renderRedirect(s.redirectTargetURL(sec.Meta.RedirectTo))
+					if err := s.writeOutput(plan.OutputPath, injectLiveReload(redirect, liveReloadURL)); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+
 			ctx := s.baseTemplateContext(sec.Lang)
 			ctx["current_url"] = sectionPagerPermalink(sec.Path, sec.Permalink, strings.Trim(sec.Meta.PaginatePath, "/"), 1)
 			ctx["current_path"] = sec.Path
@@ -569,6 +585,48 @@ func (s *Site) templateExists(name string) bool {
 	return err == nil
 }
 
+func (s *Site) anchorLinksEnabled(value string, fallback bool) bool {
+	v := strings.ToLower(strings.TrimSpace(value))
+	if v == "" {
+		return fallback
+	}
+	switch v {
+	case "none", "false", "off", "0":
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *Site) sectionAnchorLinksEnabled(sec *content.Section) bool {
+	return s.anchorLinksEnabled(sec.Meta.InsertAnchorLinks, s.Config.Markdown.InsertAnchorLinks)
+}
+
+func (s *Site) pageAnchorLinksEnabled(pg *content.Page) bool {
+	base := s.Config.Markdown.InsertAnchorLinks
+	if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
+		base = s.anchorLinksEnabled(sec.Meta.InsertAnchorLinks, base)
+	}
+	return s.anchorLinksEnabled(pg.Meta.InsertAnchorLinks, base)
+}
+
+func (s *Site) redirectTargetURL(target string) string {
+	t := strings.TrimSpace(target)
+	if strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
+		return t
+	}
+	p := "/" + strings.Trim(t, "/") + "/"
+	return strings.TrimRight(s.Config.BaseURL, "/") + p
+}
+
+func (s *Site) renderRedirect(url string) string {
+	redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": url})
+	if err == nil {
+		return redirect
+	}
+	return "<meta http-equiv=\"refresh\" content=\"0; url=" + url + "\">"
+}
+
 func (s *Site) renderFirstTemplate(candidates []string, ctx map[string]any) (string, error) {
 	for _, name := range candidates {
 		if !s.templateExists(name) {
@@ -589,7 +647,11 @@ type sectionRenderPlan struct {
 }
 
 func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
-	pages := make([]map[string]any, 0, len(sec.Pages))
+	type pageEntry struct {
+		rel string
+		pg  *content.Page
+	}
+	entries := make([]pageEntry, 0, len(sec.Pages))
 	for _, p := range sec.Pages {
 		pg := s.Library.Pages[p]
 		if pg == nil {
@@ -598,7 +660,52 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 		if pg.Meta.Render != nil && !*pg.Meta.Render {
 			continue
 		}
-		pages = append(pages, s.pageView(p, pg))
+		entries = append(entries, pageEntry{rel: p, pg: pg})
+	}
+
+	switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
+	case "date":
+		sort.SliceStable(entries, func(i, j int) bool {
+			di := entries[i].pg.Date
+			dj := entries[j].pg.Date
+			if di != nil && dj != nil && !di.Equal(*dj) {
+				return di.After(*dj)
+			}
+			if di != nil && dj == nil {
+				return true
+			}
+			if di == nil && dj != nil {
+				return false
+			}
+			if entries[i].pg.Meta.Weight != entries[j].pg.Meta.Weight {
+				return entries[i].pg.Meta.Weight < entries[j].pg.Meta.Weight
+			}
+			return entries[i].rel < entries[j].rel
+		})
+	case "weight":
+		sort.SliceStable(entries, func(i, j int) bool {
+			wi := entries[i].pg.Meta.Weight
+			wj := entries[j].pg.Meta.Weight
+			if wi != wj {
+				return wi < wj
+			}
+			if entries[i].pg.Date != nil && entries[j].pg.Date != nil && !entries[i].pg.Date.Equal(*entries[j].pg.Date) {
+				return entries[i].pg.Date.After(*entries[j].pg.Date)
+			}
+			return entries[i].rel < entries[j].rel
+		})
+	default:
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].pg.Meta.Weight != entries[j].pg.Meta.Weight {
+				return entries[i].pg.Meta.Weight < entries[j].pg.Meta.Weight
+			}
+			return entries[i].rel < entries[j].rel
+		})
+	}
+
+	pages := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		pages = append(pages, s.pageView(entry.rel, entry.pg))
 	}
 	return pages
 }
