@@ -22,6 +22,7 @@ output_dir = "public"
 	require.NoError(t, os.WriteFile(filepath.Join(root, "themes", "hyde", "theme.toml"), []byte(`
 title = "Theme Title"
 description = "Theme Desc"
+extra = { author = { name = "Keats" } }
 `), 0o644))
 
 	cfg, err := FromFile(filepath.Join(root, "zola.toml"))
@@ -30,6 +31,7 @@ description = "Theme Desc"
 	require.NoError(t, cfg.MergeTheme(filepath.Join(root, "themes", "hyde", "theme.toml")))
 	assert.Equal(t, "Theme Title", cfg.Title)
 	assert.Equal(t, "Theme Desc", cfg.Description)
+	assert.Equal(t, "Keats", cfg.Extra["author"].(map[string]any)["name"])
 }
 
 func TestDiscoverConfigPath(t *testing.T) {

@@ -287,7 +287,7 @@ func (s *Site) baseTemplateContext(lang string) map[string]any {
 			"title":            s.Config.Title,
 			"description":      s.Config.Description,
 			"default_language": s.Config.DefaultLanguage,
-			"extra":            map[string]any{},
+			"extra":            s.Config.Extra,
 		},
 		"__pages":        s.serializedPages(),
 		"__sections":     s.serializedSections(),

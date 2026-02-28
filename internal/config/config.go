@@ -49,6 +49,7 @@ type Config struct {
 	BaseURL             string                     `toml:"base_url"`
 	Title               string                     `toml:"title"`
 	Description         string                     `toml:"description"`
+	Extra               map[string]any             `toml:"extra"`
 	Theme               string                     `toml:"theme"`
 	OutputDir           string                     `toml:"output_dir"`
 	DefaultLanguage     string                     `toml:"default_language"`
@@ -96,6 +97,7 @@ func Default() Config {
 			UseCache:           true,
 		},
 		Languages:      map[string]LanguageOptions{},
+		Extra:          map[string]any{},
 		IgnoredContent: []string{},
 	}
 }
@@ -134,6 +136,9 @@ func (c *Config) MergeTheme(themeTomlPath string) error {
 	}
 	if len(c.Taxonomies) == 0 {
 		c.Taxonomies = themeCfg.Taxonomies
+	}
+	if len(c.Extra) == 0 && len(themeCfg.Extra) > 0 {
+		c.Extra = themeCfg.Extra
 	}
 	return nil
 }
