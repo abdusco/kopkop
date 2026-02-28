@@ -61,7 +61,11 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/__livereload", hub.handleWS)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rel := strings.TrimPrefix(r.URL.Path, "/")
+		rel, ok := sanitizeRequestPath(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
 		if rel == "" || strings.HasSuffix(r.URL.Path, "/") {
 			rel = filepath.Join(rel, "index.html")
 		}
@@ -195,4 +199,16 @@ func contentType(path string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func sanitizeRequestPath(requestPath string) (string, bool) {
+	rel := strings.TrimPrefix(requestPath, "/")
+	rel = filepath.Clean(rel)
+	if strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	if rel == "." {
+		rel = ""
+	}
+	return rel, true
 }
