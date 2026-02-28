@@ -103,6 +103,16 @@ func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
 		}
 		m.Available[name] = struct{}{}
 
+		if prefix != "" && !strings.HasPrefix(filepath.ToSlash(rel), "shortcodes/") {
+			alias := filepath.ToSlash(rel)
+			if _, exists := m.Available[alias]; !exists {
+				if err := m.Engine.AddTemplate(alias, source); err != nil {
+					return fmt.Errorf("parse template %q: %w", alias, err)
+				}
+				m.Available[alias] = struct{}{}
+			}
+		}
+
 		if filepath.Base(p) == "robots.txt" {
 			if err := m.Engine.AddTemplate("robots.txt", source); err != nil {
 				return err
@@ -181,6 +191,14 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("get_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		baseURL := ""
+		if cfgVal, ok := state.Lookup("config").AsMap(); ok {
+			if bu, ok := cfgVal["base_url"]; ok {
+				if s, ok := bu.AsString(); ok {
+					baseURL = strings.TrimRight(s, "/")
+				}
+			}
+		}
 		p := ""
 		if v, ok := kwargs["path"]; ok {
 			ps, ok := v.AsString()
@@ -217,6 +235,9 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 				h := sha256.Sum256(b)
 				p = p + "?h=" + fmt.Sprintf("%x", h[:8])
 			}
+		}
+		if baseURL != "" {
+			return value.FromString(baseURL + p), nil
 		}
 		return value.FromString(p), nil
 	})
@@ -385,9 +406,16 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 			return value.Undefined(), fmt.Errorf("get_hash expects content or file path")
 		}
 		data := []byte(raw)
-		if st, err := os.Stat(filepath.Join(basePath, raw)); err == nil && !st.IsDir() {
-			if b, readErr := os.ReadFile(filepath.Join(basePath, raw)); readErr == nil {
-				data = b
+		candidates := []string{
+			filepath.Join(basePath, raw),
+			filepath.Join(basePath, "static", strings.TrimPrefix(raw, "/")),
+		}
+		for _, candidate := range candidates {
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+				if b, readErr := os.ReadFile(candidate); readErr == nil {
+					data = b
+					break
+				}
 			}
 		}
 		sum := sha256.Sum256(data)

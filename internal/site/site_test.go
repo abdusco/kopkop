@@ -9,6 +9,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFixtureTemplateRender_PageTemplateDoesNotError(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..", "tests", "fixtures", "zola", "test_site")
+	s, err := New(root, filepath.Join(root, "config.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+
+	pg := s.Library.Pages["posts/simple.md"]
+	require.NotNil(t, pg)
+	ctx := s.baseTemplateContext(pg.Lang)
+	ctx["page"] = s.pageView("posts/simple.md", pg)
+	ctx["lang"] = pg.Lang
+	ctx["current_url"] = pg.Permalink
+	ctx["current_path"] = pg.Path
+	if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
+		ctx["section"] = map[string]any{
+			"title":         sec.Meta.Title,
+			"description":   sec.Meta.Description,
+			"path":          sec.Path,
+			"relative_path": sec.RelativePath,
+			"permalink":     sec.Permalink,
+			"pages":         s.sectionPageEntries(sec),
+			"subsections":   sec.Subsections,
+			"content":       sec.Content,
+		}
+	}
+	_, err = s.Templates.Render("page.html", ctx)
+	require.NoError(t, err)
+}
+
 func TestSiteBuild_Minimal(t *testing.T) {
 	t.Parallel()
 

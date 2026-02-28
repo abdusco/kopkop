@@ -59,6 +59,12 @@ func TestDefaultTemplatePathJoin_Table(t *testing.T) {
 			parent: "index.html",
 			want:   "base.html",
 		},
+		{
+			name:   "plain include resolves beside parent template",
+			input:  "current_path.html",
+			parent: "sample/templates/index.html",
+			want:   "sample/templates/current_path.html",
+		},
 	}
 
 	for _, tc := range tests {

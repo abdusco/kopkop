@@ -46,15 +46,20 @@ func DefaultTemplatePathJoin(name string, parent string) string {
 	if strings.HasPrefix(cleanName, "/") {
 		return strings.TrimPrefix(cleanName, "/")
 	}
-	if !strings.HasPrefix(cleanName, "./") && !strings.HasPrefix(cleanName, "../") {
-		return cleanName
-	}
-
 	if parent == "" {
 		return cleanName
 	}
 
-	parentDir := path.Dir(strings.ReplaceAll(parent, "\\", "/"))
+	parentNorm := strings.ReplaceAll(parent, "\\", "/")
+	parentDir := path.Dir(parentNorm)
+
+	if !strings.HasPrefix(cleanName, "./") && !strings.HasPrefix(cleanName, "../") {
+		if !strings.Contains(cleanName, "/") && parentDir != "." {
+			return path.Clean(path.Join(parentDir, cleanName))
+		}
+		return cleanName
+	}
+
 	if parentDir == "." {
 		return cleanName
 	}

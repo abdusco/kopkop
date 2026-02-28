@@ -240,6 +240,18 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			}
 			ctx := s.baseTemplateContext(pg.Lang)
 			ctx["page"] = s.pageView(rel, pg)
+			if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
+				ctx["section"] = map[string]any{
+					"title":         sec.Meta.Title,
+					"description":   sec.Meta.Description,
+					"path":          sec.Path,
+					"relative_path": sec.RelativePath,
+					"permalink":     sec.Permalink,
+					"pages":         s.sectionPageEntries(sec),
+					"subsections":   sec.Subsections,
+					"content":       sec.Content,
+				}
+			}
 			ctx["lang"] = pg.Lang
 			ctx["current_url"] = pg.Permalink
 			ctx["current_path"] = pg.Path
@@ -436,6 +448,8 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		entries := s.sectionPageEntries(sec)
 		for _, plan := range s.sectionRenderPlans(sec, entries) {
 			ctx := s.baseTemplateContext(sec.Lang)
+			ctx["current_url"] = sectionPagerPermalink(sec.Path, sec.Permalink, strings.Trim(sec.Meta.PaginatePath, "/"), 1)
+			ctx["current_path"] = sec.Path
 			ctx["section"] = map[string]any{
 				"title":             sec.Meta.Title,
 				"description":       sec.Meta.Description,
@@ -451,6 +465,12 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			}
 			if plan.Paginator != nil {
 				ctx["paginator"] = plan.Paginator
+				if cur, ok := plan.Paginator["current"].(string); ok {
+					ctx["current_url"] = cur
+					if strings.HasPrefix(cur, strings.TrimRight(s.Config.BaseURL, "/")) {
+						ctx["current_path"] = strings.TrimPrefix(cur, strings.TrimRight(s.Config.BaseURL, "/"))
+					}
+				}
 			}
 			html, err := s.Templates.Render(tpl, ctx)
 			if err != nil {
@@ -566,6 +586,7 @@ func (s *Site) sectionRenderPlans(sec *content.Section, entries []map[string]any
 			"current_index": i,
 			"number_pagers": numberPagers,
 			"per_page":      perPage,
+			"paginate_by":   perPage,
 			"total_pages":   pagesCount,
 			"first":         sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, 1),
 			"last":          sectionPagerPermalink(sec.Path, sec.Permalink, paginatePath, numberPagers),
@@ -643,6 +664,8 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 			})
 
 			ctxList := s.baseTemplateContext(lang)
+			ctxList["current_path"] = taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, "")
+			ctxList["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, "")
 			ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": termItems}
 			listHTML, listErr := s.Templates.Render("taxonomy_list.html", ctxList)
 			if listErr != nil {
@@ -656,6 +679,8 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 			for termName, entries := range termsMap {
 				pathSlug := slugifyURLSegment(termName)
 				ctx := s.baseTemplateContext(lang)
+				ctx["current_path"] = taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)
+				ctx["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)
 				ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
 				html, err := s.Templates.Render("taxonomy_single.html", ctx)
 				if err != nil {
