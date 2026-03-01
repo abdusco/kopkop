@@ -3,15 +3,21 @@ package markdown
 import (
 	"bytes"
 	"fmt"
+	stdhtml "html"
 	"net/url"
 	"path"
 	"regexp"
 	"strings"
+	"unicode"
 
+	"github.com/alecthomas/chroma/v2"
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer/html"
+	ghtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 )
 
@@ -21,6 +27,8 @@ var moreDividerRe = regexp.MustCompile(`(?is)<!--\s*more\s*-->`)
 var headingRe = regexp.MustCompile(`(?s)<h([1-6]) id="([^"]+)">(.*?)</h[1-6]>`)
 var continueReadingParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(continueReadingHTML) + `\s*</p>`)
 var fencedCodeLangRe = regexp.MustCompile(`<pre><code class="language-([^"]+)">`)
+var externalAnchorStartRe = regexp.MustCompile(`<a\s+([^>]*?)href="(https?://[^"]+)"([^>]*)>`)
+var highlightedCodeBlockRe = regexp.MustCompile(`(?s)<pre data-lang="([^"]+)" class="language-[^"]*">\s*<code class="language-[^"]*" data-lang="[^"]*">(.*?)</code>\s*</pre>`)
 
 type Heading struct {
 	ID    string
@@ -42,19 +50,19 @@ type Rendered struct {
 }
 
 type RenderContext struct {
-	Permalinks           map[string]string
-	CurrentPagePath      string
-	CurrentPagePermalink string
-	InsertAnchorLinks    bool
+	Permalinks               map[string]string
+	CurrentPagePath          string
+	CurrentPagePermalink     string
+	InsertAnchorLinks        bool
+	ExternalLinksTargetBlank bool
+	HighlightCode            bool
 }
 
 func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	md := goldmark.New(
-		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
-		),
 		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
+			ghtml.WithUnsafe(),
+			ghtml.WithXHTML(),
 		),
 	)
 
@@ -65,29 +73,51 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 
 	internalLinks := make([]InternalLink, 0)
 	externalLinks := make([]string, 0)
+	headingIDCounts := map[string]int{}
 
 	err := ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
 
-		link, ok := n.(*ast.Link)
-		if !ok {
-			return ast.WalkContinue, nil
+		switch h := n.(type) {
+		case *ast.Heading:
+			text := headingNodeText(h, source)
+			id := slugifyHeadingID(text)
+			if id == "" {
+				id = "section"
+			}
+			if count, exists := headingIDCounts[id]; exists {
+				headingIDCounts[id] = count + 1
+				id = fmt.Sprintf("%s-%d", id, count)
+			} else {
+				headingIDCounts[id] = 1
+			}
+			h.SetAttributeString("id", []byte(id))
 		}
 
-		dest := string(link.Destination)
-		resolved, internal, external, err := resolveLink(dest, ctx)
-		if err != nil {
-			return ast.WalkStop, err
+		switch node := n.(type) {
+		case *ast.Link:
+			dest := string(node.Destination)
+			resolved, internal, external, err := resolveLink(dest, ctx)
+			if err != nil {
+				return ast.WalkStop, err
+			}
+			if internal != nil {
+				internalLinks = append(internalLinks, *internal)
+			}
+			if external != "" {
+				externalLinks = append(externalLinks, external)
+			}
+			node.Destination = []byte(resolved)
+		case *ast.Image:
+			dest := string(node.Destination)
+			resolved, _, _, err := resolveLink(dest, ctx)
+			if err != nil {
+				return ast.WalkStop, err
+			}
+			node.Destination = []byte(resolved)
 		}
-		if internal != nil {
-			internalLinks = append(internalLinks, *internal)
-		}
-		if external != "" {
-			externalLinks = append(externalLinks, external)
-		}
-		link.Destination = []byte(resolved)
 		return ast.WalkContinue, nil
 	})
 	if err != nil {
@@ -101,8 +131,14 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	body := buf.String()
 	body = continueReadingParagraphRe.ReplaceAllString(body, continueReadingHTML)
 	body = fencedCodeLangRe.ReplaceAllString(body, `<pre data-lang="$1" class="language-$1 "><code class="language-$1" data-lang="$1">`)
+	if ctx.HighlightCode {
+		body = applySyntaxHighlight(body)
+	}
 	if ctx.InsertAnchorLinks {
 		body = insertAnchorLinks(body)
+	}
+	if ctx.ExternalLinksTargetBlank {
+		body = addTargetBlankToExternalLinks(body)
 	}
 	summary := extractSummary(content, ctx, md)
 
@@ -151,32 +187,117 @@ func insertAnchorLinks(htmlIn string) string {
 		level := sub[1]
 		id := sub[2]
 		inner := sub[3]
-		label := stripHTMLTags(inner)
-		if label == "" {
-			label = id
-		}
-		label = strings.ToLower(label)
+		label := strings.ToLower(id)
 		anchor := `<a class="zola-anchor" href="#` + id + `" aria-label="Anchor link for: ` + label + `">🔗</a>`
-		return `<h` + level + ` id="` + id + `">` + anchor + inner + `</h` + level + `>`
+		return `<h` + level + ` id="` + id + `">` + inner + anchor + `</h` + level + `>`
 	})
 }
 
-func stripHTMLTags(in string) string {
-	b := strings.Builder{}
-	inTag := false
-	for _, r := range in {
-		switch r {
-		case '<':
-			inTag = true
-		case '>':
-			inTag = false
-		default:
-			if !inTag {
-				b.WriteRune(r)
-			}
+func addTargetBlankToExternalLinks(htmlIn string) string {
+	return externalAnchorStartRe.ReplaceAllStringFunc(htmlIn, func(m string) string {
+		sub := externalAnchorStartRe.FindStringSubmatch(m)
+		if len(sub) != 4 {
+			return m
+		}
+		before := sub[1]
+		href := sub[2]
+		after := sub[3]
+		attrs := strings.TrimSpace(before + " " + after)
+		target := ""
+		rel := ""
+		if strings.Contains(attrs, `target=`) {
+			target = ""
+		} else {
+			target = ` target="_blank"`
+		}
+		if strings.Contains(attrs, `rel=`) {
+			rel = ""
+		} else {
+			rel = ` rel="noopener"`
+		}
+		if attrs != "" {
+			attrs = " " + attrs
+		}
+		return `<a` + attrs + rel + target + ` href="` + href + `">`
+	})
+}
+
+func headingNodeText(h *ast.Heading, source []byte) string {
+	var b strings.Builder
+	_ = ast.Walk(h, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch x := n.(type) {
+		case *ast.Text:
+			b.Write(x.Segment.Value(source))
+		}
+		return ast.WalkContinue, nil
+	})
+	return strings.TrimSpace(b.String())
+}
+
+func slugifyHeadingID(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastHyphen = false
+			continue
+		}
+		if !lastHyphen {
+			b.WriteByte('-')
+			lastHyphen = true
 		}
 	}
-	return strings.Join(strings.Fields(strings.TrimSpace(b.String())), " ")
+	out := strings.Trim(b.String(), "-")
+	return out
+}
+
+func applySyntaxHighlight(htmlIn string) string {
+	formatter := chromahtml.New(
+		chromahtml.WithClasses(true),
+		chromahtml.ClassPrefix("z-"),
+		chromahtml.PreventSurroundingPre(true),
+	)
+	style := styles.Get("github")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	return highlightedCodeBlockRe.ReplaceAllStringFunc(htmlIn, func(block string) string {
+		sub := highlightedCodeBlockRe.FindStringSubmatch(block)
+		if len(sub) != 3 {
+			return block
+		}
+		lang := sub[1]
+		rawCode := stdhtml.UnescapeString(sub[2])
+
+		lexer := lexers.Get(lang)
+		if lexer == nil {
+			lexer = lexers.Analyse(rawCode)
+		}
+		if lexer == nil {
+			lexer = lexers.Fallback
+		}
+		lexer = chroma.Coalesce(lexer)
+
+		iterator, err := lexer.Tokenise(nil, rawCode)
+		if err != nil {
+			return block
+		}
+		var out bytes.Buffer
+		if err := formatter.Format(&out, style, iterator); err != nil {
+			return block
+		}
+		highlighted := strings.TrimRight(out.String(), "\n")
+		return `<pre data-lang="` + lang + `" class="language-` + lang + ` z-code"><code class="language-` + lang + `" data-lang="` + lang + `">` + highlighted + `</code></pre>`
+	})
 }
 
 func extractSummary(content string, ctx RenderContext, md goldmark.Markdown) *string {

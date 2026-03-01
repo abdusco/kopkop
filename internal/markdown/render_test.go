@@ -95,3 +95,12 @@ func TestRenderContent_FencedCodeHasZolaLikeLanguageAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, res.Body, `<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">`)
 }
+
+func TestRenderContent_HighlightedCodeAddsZCodeSpans(t *testing.T) {
+	t.Parallel()
+
+	res, err := RenderContent("```go\npackage main\n```", RenderContext{HighlightCode: true})
+	require.NoError(t, err)
+	assert.Contains(t, res.Body, `class="language-go z-code"`)
+	assert.Contains(t, res.Body, `<span class="z-`)
+}
