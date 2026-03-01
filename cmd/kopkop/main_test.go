@@ -21,7 +21,6 @@ func TestRunInitBuildCheck(t *testing.T) {
 base_url = "http://127.0.0.1:1111"
 title = "My Site"
 output_dir = "public"
-compile_sass = false
 
 [link_checker]
 internal_level = "error"
@@ -53,7 +52,6 @@ func TestRunCheck_WarnModeDoesNotFail(t *testing.T) {
 base_url = "http://127.0.0.1:1111"
 title = "My Site"
 output_dir = "public"
-compile_sass = false
 
 [link_checker]
 internal_level = "warn"

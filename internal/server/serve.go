@@ -91,7 +91,6 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 		filepath.Join(s.BasePath, "content"),
 		filepath.Join(s.BasePath, "templates"),
 		filepath.Join(s.BasePath, "static"),
-		filepath.Join(s.BasePath, "sass"),
 		filepath.Dir(s.ConfigPath),
 	}
 	watchPaths = append(watchPaths, opts.ExtraWatchPaths...)

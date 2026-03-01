@@ -63,7 +63,6 @@ func TestSiteBuild_Minimal(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = true
 generate_feeds = false
 build_search_index = false
@@ -103,7 +102,6 @@ func TestSiteBuild_ConcurrentDeterministicOutput(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = true
 generate_feeds = false
 build_search_index = false
@@ -146,7 +144,6 @@ func TestSiteBuild_SectionPagination(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = false
 build_search_index = false
@@ -193,7 +190,6 @@ func TestSiteBuild_SectionPaginationReversedDefaultPath(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = false
 build_search_index = false
@@ -231,7 +227,6 @@ func TestSiteBuild_PaginatedSectionWritesPageOneAlias(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = false
 build_search_index = false
@@ -263,7 +258,6 @@ func TestSiteBuild_TaxonomyListAndTermFeed(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = true
 build_search_index = false
@@ -302,7 +296,6 @@ func TestSiteBuild_SectionFeedGeneratedWhenEnabled(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = true
 build_search_index = false
@@ -336,7 +329,6 @@ func TestSiteBuild_SkipsRenderFalsePageAndSection(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = false
 build_search_index = false
@@ -372,7 +364,6 @@ func TestSiteBuild_RendersTaxonomyForLanguagePrefix(t *testing.T) {
 base_url = "https://example.com"
 title = "Demo"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = false
 generate_feeds = true
 build_search_index = false

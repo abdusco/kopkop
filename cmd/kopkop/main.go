@@ -81,7 +81,6 @@ title = "My Site"
 description = ""
 output_dir = "public"
 link_strategy = "absolute"
-compile_sass = true
 build_search_index = false
 generate_sitemap = true
 generate_feeds = false
@@ -95,11 +94,14 @@ title = "Home"
 
 Welcome to your new site.
 `)
-	_ = write("templates/page.html", `<html><body><h1>{{ page.title }}</h1>{{ page.content|safe }}</body></html>`)
-	_ = write("templates/section.html", `<html><body><h1>{{ section.title }}</h1><ul>{% for p in section.pages %}<li><a href="{{ p.permalink }}">{{ p.title }}</a></li>{% endfor %}</ul></body></html>`)
-	_ = write("templates/index.html", `<html><body><h1>{{ config.title }}</h1></body></html>`)
+	_ = write("templates/page.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ page.title }}</h1>{{ page.content|safe }}</body></html>`)
+	_ = write("templates/section.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ section.title }}</h1><ul>{% for p in section.pages %}<li><a href="{{ p.permalink }}">{{ p.title }}</a></li>{% endfor %}</ul></body></html>`)
+	_ = write("templates/index.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ config.title }}</h1></body></html>`)
 	_ = write("static/.keep", "")
-	_ = write("sass/site.scss", `body { font-family: sans-serif; }`)
+	_ = write("static/style.css", "body { font-family: sans-serif; margin: 2rem; line-height: 1.5; }\n"+
+		"h1 { margin-bottom: 1rem; }\n"+
+		"a { color: #0f4c81; text-decoration: none; }\n"+
+		"a:hover { text-decoration: underline; }\n")
 	log.Printf("initialized site in %s", root)
 	return nil
 }

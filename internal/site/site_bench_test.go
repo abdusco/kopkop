@@ -14,7 +14,6 @@ func BenchmarkSiteBuild(b *testing.B) {
 base_url = "https://example.com"
 title = "Bench"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = true
 generate_feeds = false
 build_search_index = false

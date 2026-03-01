@@ -110,7 +110,6 @@ type Config struct {
 	DefaultLanguage     string                     `toml:"default_language"`
 	LinkStrategy        string                     `toml:"link_strategy"`
 	Languages           map[string]LanguageOptions `toml:"languages"`
-	CompileSass         bool                       `toml:"compile_sass"`
 	BuildSearchIndex    bool                       `toml:"build_search_index"`
 	GenerateFeeds       bool                       `toml:"generate_feeds"`
 	GenerateSitemap     bool                       `toml:"generate_sitemap"`
@@ -132,7 +131,6 @@ func Default() Config {
 		OutputDir:         "public",
 		DefaultLanguage:   "en",
 		LinkStrategy:      "absolute",
-		CompileSass:       true,
 		BuildSearchIndex:  false,
 		GenerateFeeds:     false,
 		GenerateSitemap:   true,

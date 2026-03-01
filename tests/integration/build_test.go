@@ -20,7 +20,6 @@ func TestBuild_IsDeterministicForSimpleFixture(t *testing.T) {
 base_url = "https://example.com"
 title = "Fixture"
 output_dir = "public"
-compile_sass = false
 generate_sitemap = true
 generate_feeds = false
 build_search_index = false
