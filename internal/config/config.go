@@ -112,6 +112,7 @@ type Config struct {
 	Languages           map[string]LanguageOptions `toml:"languages"`
 	BuildSearchIndex    bool                       `toml:"build_search_index"`
 	GenerateFeeds       bool                       `toml:"generate_feeds"`
+	FeedFilenames       []string                   `toml:"feed_filenames"`
 	GenerateSitemap     bool                       `toml:"generate_sitemap"`
 	GenerateRobotsTXT   bool                       `toml:"generate_robots_txt"`
 	MinifyHTML          bool                       `toml:"minify_html"`
@@ -133,6 +134,7 @@ func Default() Config {
 		LinkStrategy:      "absolute",
 		BuildSearchIndex:  false,
 		GenerateFeeds:     false,
+		FeedFilenames:     []string{"atom.xml"},
 		GenerateSitemap:   true,
 		GenerateRobotsTXT: true,
 		MinifyHTML:        false,
@@ -223,6 +225,11 @@ func (c Config) Validate() error {
 	}
 	if c.Search.IndexPath == "" {
 		return errors.New("search.index_path must not be empty")
+	}
+	for _, f := range c.FeedFilenames {
+		if strings.TrimSpace(f) == "" {
+			return errors.New("feed_filenames must not contain empty values")
+		}
 	}
 	return nil
 }

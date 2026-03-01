@@ -1116,9 +1116,11 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 							}
 						}
 					}
-					atom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)+"atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, lang, taxPages)
-					if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), "atom.xml"), atom); err != nil {
-						return err
+					for _, feedName := range s.feedFilenames() {
+						feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, lang, taxPages)
+						if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), feedName), feed); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -1509,9 +1511,11 @@ func (s *Site) renderFeed() error {
 			return pagesByLang[lang][i]["permalink"].(string) < pagesByLang[lang][j]["permalink"].(string)
 		})
 	}
-	atom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, s.Config.DefaultLanguage, defaultLangPages)
-	if err := s.writeOutput("atom.xml", atom); err != nil {
-		return err
+	for _, feedName := range s.feedFilenames() {
+		feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, s.Config.DefaultLanguage, defaultLangPages)
+		if err := s.writeOutput(feedName, feed); err != nil {
+			return err
+		}
 	}
 
 	for lang, langPages := range pagesByLang {
@@ -1523,9 +1527,11 @@ func (s *Site) renderFeed() error {
 			continue
 		}
 		_ = langPages
-		langAtom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/atom.xml", strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, lang, rawPagesByLang[lang])
-		if err := s.writeOutput(filepath.Join(lang, "atom.xml"), langAtom); err != nil {
-			return err
+		for _, feedName := range s.feedFilenames() {
+			langFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, lang, rawPagesByLang[lang])
+			if err := s.writeOutput(filepath.Join(lang, feedName), langFeed); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1541,12 +1547,32 @@ func (s *Site) renderFeed() error {
 				secPages = append(secPages, p)
 			}
 		}
-		secAtom := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+"atom.xml", strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, sec.Lang, secPages)
-		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), "atom.xml"), secAtom); err != nil {
-			return err
+		for _, feedName := range s.feedFilenames() {
+			secFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, sec.Lang, secPages)
+			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), feedName), secFeed); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (s *Site) feedFilenames() []string {
+	if len(s.Config.FeedFilenames) == 0 {
+		return []string{"atom.xml"}
+	}
+	out := make([]string, 0, len(s.Config.FeedFilenames))
+	for _, name := range s.Config.FeedFilenames {
+		n := strings.TrimSpace(name)
+		if n == "" {
+			continue
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return []string{"atom.xml"}
+	}
+	return out
 }
 
 func (s *Site) taxonomyFeedEnabled(name string, lang string) bool {
