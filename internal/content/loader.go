@@ -166,6 +166,9 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 			page.Date = &t
 		}
 	}
+	if t, ok := parseDateAny(meta.Updated); ok {
+		page.Updated = &t
+	}
 
 	assets, _ := findColocatedAssets(absPath)
 	page.Assets = assets

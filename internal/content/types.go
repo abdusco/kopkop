@@ -8,11 +8,13 @@ type PageFrontMatter struct {
 	Slug              string              `toml:"slug" yaml:"slug"`
 	Path              string              `toml:"path" yaml:"path"`
 	Date              any                 `toml:"date" yaml:"date"`
+	Updated           any                 `toml:"updated" yaml:"updated"`
 	Weight            int                 `toml:"weight" yaml:"weight"`
 	Template          string              `toml:"template" yaml:"template"`
 	Aliases           []string            `toml:"aliases" yaml:"aliases"`
 	Taxonomies        map[string][]string `toml:"taxonomies" yaml:"taxonomies"`
 	Authors           []string            `toml:"authors" yaml:"authors"`
+	Extra             map[string]any      `toml:"extra" yaml:"extra"`
 	Draft             bool                `toml:"draft" yaml:"draft"`
 	Render            *bool               `toml:"render" yaml:"render"`
 	InsertAnchorLinks string              `toml:"insert_anchor_links" yaml:"insert_anchor_links"`
@@ -56,6 +58,7 @@ type Page struct {
 	InternalLinks []InternalLink
 	ExternalLinks []string
 	Date          *time.Time
+	Updated       *time.Time
 	ParentSection string
 	Translations  []string
 }
