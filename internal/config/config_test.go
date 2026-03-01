@@ -47,3 +47,43 @@ func TestDiscoverConfigPath(t *testing.T) {
 	assert.Equal(t, root, r)
 	assert.Equal(t, filepath.Join(root, "zola.toml"), cfg)
 }
+
+func TestFromFile_MarkdownBooleanAndStringOptions(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "zola.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+base_url = "https://example.com"
+
+[markdown]
+insert_anchor_links = "right"
+external_links_target_blank = true
+highlight_code = true
+`), 0o644))
+
+	cfg, err := FromFile(configPath)
+	require.NoError(t, err)
+	assert.True(t, cfg.Markdown.InsertAnchorLinks)
+	assert.True(t, cfg.Markdown.ExternalLinksTargetBlank)
+	assert.True(t, cfg.Markdown.HighlightCode)
+}
+
+func TestConfigValidate_LinkStrategy(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.BaseURL = "https://example.com"
+	cfg.OutputDir = "public"
+	cfg.DefaultLanguage = "en"
+	cfg.Search.IndexPath = "search_index.json"
+
+	cfg.LinkStrategy = "relative"
+	require.NoError(t, cfg.Validate())
+
+	cfg.LinkStrategy = "absolute"
+	require.NoError(t, cfg.Validate())
+
+	cfg.LinkStrategy = "weird"
+	require.Error(t, cfg.Validate())
+}

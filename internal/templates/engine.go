@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	minijinja "github.com/mitsuhiko/minijinja/minijinja-go/v2"
+	"github.com/mitsuhiko/minijinja/minijinja-go/v2/value"
 )
 
 type Engine struct {
@@ -17,6 +18,19 @@ func NewEngine() *Engine {
 	// while still surfacing many undefined issues.
 	env.SetUndefinedBehavior(minijinja.UndefinedSemiStrict)
 	env.SetDebug(true)
+	env.SetFormatter(func(state *minijinja.State, val value.Value, escape func(string) string) string {
+		_ = state
+		if val.IsNone() {
+			return ""
+		}
+		s := val.String()
+		if !val.IsSafe() {
+			s = escape(s)
+			s = strings.ReplaceAll(s, "&#x2F;", "/")
+			s = strings.ReplaceAll(s, "&#x2f;", "/")
+		}
+		return s
+	})
 
 	return &Engine{env: env}
 }

@@ -59,8 +59,12 @@ func LoadManager(basePath string, theme string) (*Manager, error) {
 		mgr.Available[n] = struct{}{}
 	}
 
-	registerDefaultHelpers(mgr.Engine.Env(), basePath, filepath.Join(basePath, "public"))
+	mgr.ConfigureHelpers(basePath, filepath.Join(basePath, "public"))
 	return mgr, nil
+}
+
+func (m *Manager) ConfigureHelpers(basePath string, outputPath string) {
+	registerDefaultHelpers(m.Engine.Env(), basePath, outputPath)
 }
 
 func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
@@ -173,9 +177,6 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 
 		if idx := strings.Index(name, "/templates/shortcodes/"); idx != -1 {
 			scName := strings.TrimSuffix(name[idx+len("/templates/shortcodes/"):], filepath.Ext(name))
-			if _, exists := defs[scName]; exists {
-				continue
-			}
 			defs[scName] = ShortcodeDefinition{Name: scName, FileType: fileType, Template: name}
 		}
 	}
@@ -189,6 +190,29 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		_ = args
 		_ = kwargs
 		return value.FromString(time.Now().UTC().Format(time.RFC3339)), nil
+	})
+
+	env.AddFunction("get_env", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		_ = args
+		nameVal, ok := kwargs["name"]
+		if !ok {
+			return value.Undefined(), fmt.Errorf("get_env expects name=...")
+		}
+		name, ok := nameVal.AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("get_env name must be string")
+		}
+		def := ""
+		if d, ok := kwargs["default"]; ok {
+			if s, ok := d.AsString(); ok {
+				def = s
+			}
+		}
+		if val, exists := os.LookupEnv(name); exists {
+			return value.FromString(val), nil
+		}
+		return value.FromString(def), nil
 	})
 
 	env.AddFunction("get_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
@@ -222,25 +246,50 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 				cachebust = b
 			}
 		}
+		absolute := false
+		if cfgVal, ok := state.Lookup("config").AsMap(); ok {
+			if ls, ok := cfgVal["link_strategy"]; ok {
+				if s, ok := ls.AsString(); ok {
+					absolute = strings.EqualFold(strings.TrimSpace(s), "absolute")
+				}
+			} else {
+				absolute = true
+			}
+		} else {
+			absolute = true
+		}
+		if v, ok := kwargs["absolute"]; ok {
+			b, ok := v.AsBool()
+			if !ok {
+				return value.Undefined(), fmt.Errorf("get_url absolute must be bool")
+			}
+			absolute = b
+		}
 
 		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-			return value.FromString(p), nil
+			return value.FromSafeString(p), nil
 		}
 		if !strings.HasPrefix(p, "/") {
 			p = "/" + p
 		}
 		if cachebust {
 			local := strings.TrimPrefix(p, "/")
-			candidate := filepath.Join(basePath, "static", local)
-			if b, err := os.ReadFile(candidate); err == nil {
-				h := sha256.Sum256(b)
-				p = p + "?h=" + fmt.Sprintf("%x", h[:10])
+			candidates := []string{
+				filepath.Join(outputPath, local),
+				filepath.Join(basePath, "static", local),
+			}
+			for _, candidate := range candidates {
+				if b, err := os.ReadFile(candidate); err == nil {
+					h := sha256.Sum256(b)
+					p = p + "?h=" + fmt.Sprintf("%x", h[:10])
+					break
+				}
 			}
 		}
-		if baseURL != "" {
-			return value.FromString(baseURL + p), nil
+		if absolute && baseURL != "" {
+			return value.FromSafeString(baseURL + p), nil
 		}
-		return value.FromString(p), nil
+		return value.FromSafeString(p), nil
 	})
 
 	env.AddFunction("get_page", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
@@ -593,6 +642,94 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		}
 		return val, nil
 	})
+
+	env.AddFilter("concat", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		other, ok := kwargs["with"]
+		if !ok && len(args) > 0 {
+			other = args[0]
+			ok = true
+		}
+		if !ok {
+			return value.Undefined(), fmt.Errorf("concat expects with=...")
+		}
+
+		left, lOK := val.AsSlice()
+		if !lOK {
+			if val.IsUndefined() || val.IsNone() {
+				left = []value.Value{}
+				lOK = true
+			}
+		}
+		right, rOK := other.AsSlice()
+		if !rOK {
+			if other.IsUndefined() || other.IsNone() {
+				right = []value.Value{}
+				rOK = true
+			}
+		}
+		if !lOK || !rOK {
+			return value.Undefined(), fmt.Errorf("concat expects two arrays")
+		}
+		out := make([]value.Value, 0, len(left)+len(right))
+		out = append(out, left...)
+		out = append(out, right...)
+		return value.FromSlice(out), nil
+	})
+
+	env.AddFilter("date", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		_ = state
+		format := "%Y-%m-%d"
+		if v, ok := kwargs["format"]; ok {
+			if s, ok := v.AsString(); ok && s != "" {
+				format = s
+			}
+		} else if len(args) > 0 {
+			if s, ok := args[0].AsString(); ok && s != "" {
+				format = s
+			}
+		}
+
+		tm, ok := parseTemplateTimeValue(val)
+		if !ok {
+			return value.Undefined(), fmt.Errorf("date filter expects a date/time value")
+		}
+		return value.FromString(tm.Format(strftimeToGoLayout(format))), nil
+	})
+}
+
+func parseTemplateTimeValue(v value.Value) (time.Time, bool) {
+	if raw := v.Raw(); raw != nil {
+		switch t := raw.(type) {
+		case time.Time:
+			return t, true
+		case *time.Time:
+			if t != nil {
+				return *t, true
+			}
+		}
+	}
+	if s, ok := v.AsString(); ok {
+		layouts := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02"}
+		for _, layout := range layouts {
+			if t, err := time.Parse(layout, strings.TrimSpace(s)); err == nil {
+				return t, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
+func strftimeToGoLayout(format string) string {
+	repl := strings.NewReplacer(
+		"%Y", "2006",
+		"%m", "01",
+		"%d", "02",
+		"%H", "15",
+		"%M", "04",
+		"%S", "05",
+	)
+	return repl.Replace(format)
 }
 
 func firstPathArg(args []value.Value, kwargs map[string]value.Value) (string, error) {

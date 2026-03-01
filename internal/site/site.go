@@ -103,6 +103,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	if opts.OutputDir != "" {
 		s.OutputPath = opts.OutputDir
 	}
+	s.Templates.ConfigureHelpers(s.BasePath, s.OutputPath)
 	s.BuildMode = opts.BuildMode
 	if opts.Minify {
 		s.Config.MinifyHTML = true
@@ -124,19 +125,6 @@ func (s *Site) Build(opts BuildOptions) error {
 			return err
 		}
 	}
-
-	if s.Config.CompileSass {
-		if s.Config.Theme != "" {
-			themeSass := filepath.Join(s.BasePath, "themes", s.Config.Theme, "sass")
-			if err := assets.CompileSassDir(themeSass, s.OutputPath); err != nil {
-				return err
-			}
-		}
-		if err := assets.CompileSass(s.BasePath, s.OutputPath); err != nil {
-			return err
-		}
-	}
-
 	if err := s.renderAllPages(opts.LiveReloadURL, opts.Concurrency); err != nil {
 		return err
 	}
@@ -358,6 +346,34 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		}
 	}
 	earlier, later := s.pageNeighbors(rel, pg)
+	extra := pg.Meta.Extra
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	taxonomies := map[string]any{}
+	for kind, terms := range pg.Meta.Taxonomies {
+		copied := make([]string, len(terms))
+		copy(copied, terms)
+		taxonomies[kind] = copied
+	}
+	var dateVal any
+	if pg.Date != nil {
+		dateVal = pg.Date.Format(time.RFC3339)
+	}
+	var updatedVal any
+	if pg.Updated != nil {
+		updatedVal = pg.Updated.Format(time.RFC3339)
+	}
+	slug := pg.Slug
+	if strings.TrimSpace(pg.Meta.Slug) != "" {
+		slug = strings.TrimSpace(pg.Meta.Slug)
+	} else if slug == "" {
+		trimmed := strings.Trim(pg.Path, "/")
+		if trimmed != "" {
+			parts := strings.Split(trimmed, "/")
+			slug = parts[len(parts)-1]
+		}
+	}
 
 	return map[string]any{
 		"title":         pg.Meta.Title,
@@ -369,36 +385,18 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"lang":          pg.Lang,
 		"toc":           s.tocView(pg.TOC),
 		"summary":       pg.Summary,
-		"slug":          pg.Slug,
-		"date":          pg.Date,
+		"slug":          slug,
+		"date":          dateVal,
+		"updated":       updatedVal,
+		"extra":         extra,
 		"earlier":       earlier,
 		"later":         later,
 		"translations":  trans,
 		"assets":        pg.Assets,
-		"taxonomies":    taxonomiesView(pg.Meta.Taxonomies),
+		"taxonomies":    taxonomies,
 		"aliases":       pg.Meta.Aliases,
 		"draft":         pg.Meta.Draft,
 	}
-}
-
-func taxonomiesView(in map[string][]string) []any {
-	if len(in) == 0 {
-		return []any{}
-	}
-	keys := make([]string, 0, len(in))
-	for k := range in {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	out := make([]any, 0, len(keys))
-	for _, k := range keys {
-		items := make([]any, 0, len(in[k]))
-		for _, v := range in[k] {
-			items = append(items, v)
-		}
-		out = append(out, []any{k, items})
-	}
-	return out
 }
 
 func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]any) map[string]any {
@@ -469,12 +467,16 @@ func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]
 	}
 }
 
-func (s *Site) tocView(toc []content.Heading) string {
-	_ = s
-	if len(toc) == 0 {
-		return "[]"
+func (s *Site) tocView(toc []content.Heading) []map[string]any {
+	out := make([]map[string]any, 0, len(toc))
+	for _, h := range toc {
+		out = append(out, map[string]any{
+			"id":    h.ID,
+			"title": h.Title,
+			"level": h.Level,
+		})
 	}
-	return "[[object]]"
+	return out
 }
 
 func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[string]any) {
@@ -484,6 +486,17 @@ func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[
 }
 
 func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
+	pageCtx := map[string]any{
+		"title":     pg.Meta.Title,
+		"path":      pg.Path,
+		"permalink": pg.Permalink,
+		"lang":      pg.Lang,
+		"toc":       []map[string]any{},
+		"extra":     map[string]any{},
+	}
+	if pg.Meta.Extra != nil {
+		pageCtx["extra"] = pg.Meta.Extra
+	}
 	out, scs, err := shortcode.Parse(pg.RawContent)
 	if err != nil {
 		return markdown.Rendered{}, err
@@ -499,6 +512,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 				return shortcode.Placeholder, nil
 			}
 			ctx := map[string]any{"nth": sc.Nth}
+			ctx["page"] = pageCtx
 			for k, v := range sc.Args {
 				ctx[k] = v
 			}
@@ -516,22 +530,24 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		return markdown.Rendered{}, err
 	}
 	rendered, err := markdown.RenderContent(contentWithMD, markdown.RenderContext{
-		Permalinks:           s.Library.Permalinks,
-		CurrentPagePath:      pg.RelativePath,
-		CurrentPagePermalink: pg.Permalink,
-		InsertAnchorLinks:    s.pageAnchorLinksEnabled(pg),
+		Permalinks:               s.Library.Permalinks,
+		CurrentPagePath:          pg.RelativePath,
+		CurrentPagePermalink:     pg.Permalink,
+		InsertAnchorLinks:        s.pageAnchorLinksEnabled(pg),
+		ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
+		HighlightCode:            s.Config.Markdown.HighlightCode,
 	})
 	if err != nil {
 		return markdown.Rendered{}, err
 	}
 	rendered.Body = shortcodeParagraphRe.ReplaceAllString(rendered.Body, shortcode.Placeholder)
-
 	for _, sc := range htmlSCs {
 		def, ok := defs[sc.Name]
 		if !ok {
 			return markdown.Rendered{}, fmt.Errorf("unknown shortcode: %s", sc.Name)
 		}
 		ctx := map[string]any{"nth": sc.Nth}
+		ctx["page"] = pageCtx
 		for k, v := range sc.Args {
 			ctx[k] = v
 		}
@@ -543,7 +559,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 			return markdown.Rendered{}, rErr
 		}
 		if !strings.Contains(repl, "<") {
-			repl = repl + "\n\n"
+			repl = strings.TrimRight(repl, "\n") + "\n"
 		} else {
 			repl = strings.TrimRight(repl, "\n") + "\n"
 		}
@@ -566,10 +582,12 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			continue
 		}
 		renderedSection, secErr := markdown.RenderContent(sec.RawContent, markdown.RenderContext{
-			Permalinks:           s.Library.Permalinks,
-			CurrentPagePath:      sec.RelativePath,
-			CurrentPagePermalink: sec.Permalink,
-			InsertAnchorLinks:    s.sectionAnchorLinksEnabled(sec),
+			Permalinks:               s.Library.Permalinks,
+			CurrentPagePath:          sec.RelativePath,
+			CurrentPagePermalink:     sec.Permalink,
+			InsertAnchorLinks:        s.sectionAnchorLinksEnabled(sec),
+			ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
+			HighlightCode:            s.Config.Markdown.HighlightCode,
 		})
 		if secErr == nil {
 			sec.Content = renderedSection.Body
@@ -597,6 +615,17 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			ctx["current_url"] = sectionPagerPermalink(sec.Path, sec.Permalink, strings.Trim(sec.Meta.PaginatePath, "/"), 1)
 			ctx["current_path"] = sec.Path
 			ctx["section"] = s.sectionView(rel, sec, plan.Pages)
+			slug := strings.Trim(sec.Path, "/")
+			if strings.Contains(slug, "/") {
+				parts := strings.Split(slug, "/")
+				slug = parts[len(parts)-1]
+			}
+			ctx["page"] = map[string]any{
+				"title":       sec.Meta.Title,
+				"slug":        slug,
+				"description": sec.Meta.Description,
+				"extra":       map[string]any{},
+			}
 			if plan.Paginator != nil {
 				ctx["paginator"] = plan.Paginator
 				if cur, ok := plan.Paginator["current"].(string); ok {
@@ -631,6 +660,37 @@ func (s *Site) renderSections(liveReloadURL string) error {
 	}
 
 	defaultRoot, hasDefaultRoot := s.Library.Sections["_index.md"]
+	if !hasDefaultRoot && s.templateExists("index.html") {
+		ctx := s.baseTemplateContext(s.Config.DefaultLanguage)
+		ctx["section"] = map[string]any{
+			"title":             "",
+			"description":       "",
+			"path":              "/",
+			"relative_path":     "_index.md",
+			"permalink":         strings.TrimRight(s.Config.BaseURL, "/") + "/",
+			"pages":             []map[string]any{},
+			"subsections":       []string{},
+			"content":           "",
+			"paginate_by":       0,
+			"paginate_path":     "",
+			"paginate_reversed": false,
+			"translations":      []map[string]any{},
+		}
+		ctx["page"] = map[string]any{
+			"title":       s.Config.Title,
+			"slug":        "",
+			"description": "",
+			"extra":       map[string]any{},
+		}
+		html, err := s.Templates.Render("index.html", ctx)
+		if err != nil {
+			html = "<html><body><h1>Home</h1><pre>" + fmt.Sprintf("%+v", err) + "</pre></body></html>"
+		}
+		html = injectLiveReload(html, liveReloadURL)
+		if err := s.writeOutput("index.html", html); err != nil {
+			return err
+		}
+	}
 	if hasDefaultRoot {
 		for lang := range s.Config.Languages {
 			if lang == s.Config.DefaultLanguage {
@@ -680,7 +740,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			}
 			html, err := s.Templates.Render(rootTpl, ctx)
 			if err != nil {
-				html = "<html><body><h1>" + defaultRoot.Meta.Title + "</h1></body></html>"
+				html = "<html><body><h1>" + defaultRoot.Meta.Title + "</h1><pre>" + err.Error() + "</pre></body></html>"
 			}
 			html = injectLiveReload(html, liveReloadURL)
 			if err := s.writeOutput(filepath.Join(lang, "index.html"), html); err != nil {
@@ -1249,13 +1309,16 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang
 func (s *Site) defaultSitemapXML() string {
 	lastmods := map[string]string{}
 	urlsSet := map[string]struct{}{}
+	urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"] = struct{}{}
 	for _, p := range s.Library.Pages {
 		if p.Meta.Render != nil && !*p.Meta.Render {
 			continue
 		}
 		urlsSet[p.Permalink] = struct{}{}
-		if p.Date != nil {
-			lastmods[p.Permalink] = p.Date.Format("2006-01-02")
+		if p.Updated != nil {
+			lastmods[p.Permalink] = pageSitemapLastmod(p.SourcePath, "updated", p.Meta.Updated, p.Updated)
+		} else if p.Date != nil {
+			lastmods[p.Permalink] = pageSitemapLastmod(p.SourcePath, "date", p.Meta.Date, p.Date)
 		}
 	}
 	for _, sec := range s.Library.Sections {
@@ -1297,6 +1360,7 @@ func (s *Site) defaultSitemapXML() string {
 		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/"] = struct{}{}
 	}
 	for _, tx := range s.Library.Taxonomies {
+		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(s.Config.DefaultLanguage, s.Config.DefaultLanguage, tx.Name, "")] = struct{}{}
 		termsByLang := map[string]map[string]struct{}{}
 		for termName, term := range tx.Terms {
 			slug := slugifyURLSegment(termName)
@@ -1342,6 +1406,85 @@ func (s *Site) defaultSitemapXML() string {
 	}
 	b.WriteString("</urlset>")
 	return b.String()
+}
+
+func formatSitemapDate(raw any, parsed *time.Time) string {
+	if parsed == nil {
+		return ""
+	}
+	if s, ok := raw.(string); ok {
+		t := strings.TrimSpace(s)
+		if strings.Contains(t, "T") {
+			return parsed.UTC().Format(time.RFC3339)
+		}
+	}
+	return parsed.Format("2006-01-02")
+}
+
+func pageSitemapLastmod(sourcePath string, key string, raw any, parsed *time.Time) string {
+	if parsed == nil {
+		return ""
+	}
+	if lex, ok := extractFrontMatterScalar(sourcePath, key); ok {
+		if strings.Contains(strings.ToLower(lex), "t") {
+			return parsed.UTC().Format(time.RFC3339)
+		}
+		return parsed.Format("2006-01-02")
+	}
+	return formatSitemapDate(raw, parsed)
+}
+
+func extractFrontMatterScalar(sourcePath string, key string) (string, bool) {
+	b, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", false
+	}
+	s := strings.TrimPrefix(string(b), "\ufeff")
+	if strings.HasPrefix(s, "---\n") {
+		end := strings.Index(s[4:], "\n---")
+		if end == -1 {
+			return "", false
+		}
+		block := s[4 : 4+end]
+		for _, line := range strings.Split(block, "\n") {
+			trim := strings.TrimSpace(line)
+			if !strings.HasPrefix(trim, key+":") {
+				continue
+			}
+			v := strings.TrimSpace(strings.TrimPrefix(trim, key+":"))
+			v = strings.Trim(v, `"'`)
+			if v == "" {
+				return "", false
+			}
+			return v, true
+		}
+		return "", false
+	}
+	if strings.HasPrefix(s, "+++\n") {
+		end := strings.Index(s[4:], "\n+++")
+		if end == -1 {
+			return "", false
+		}
+		block := s[4 : 4+end]
+		for _, line := range strings.Split(block, "\n") {
+			trim := strings.TrimSpace(line)
+			if !strings.HasPrefix(trim, key+" =") {
+				continue
+			}
+			parts := strings.SplitN(trim, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			v := strings.TrimSpace(parts[1])
+			v = strings.Trim(v, `"'`)
+			if v == "" {
+				return "", false
+			}
+			return v, true
+		}
+		return "", false
+	}
+	return "", false
 }
 
 func (s *Site) renderFeed() error {

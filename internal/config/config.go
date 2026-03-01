@@ -27,7 +27,59 @@ type LinkChecker struct {
 }
 
 type Markdown struct {
-	InsertAnchorLinks bool `toml:"insert_anchor_links"`
+	InsertAnchorLinks        bool `toml:"insert_anchor_links"`
+	ExternalLinksTargetBlank bool `toml:"external_links_target_blank"`
+	HighlightCode            bool `toml:"highlight_code"`
+}
+
+func (m *Markdown) UnmarshalTOML(v any) error {
+	m.InsertAnchorLinks = false
+	m.ExternalLinksTargetBlank = false
+	m.HighlightCode = false
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if raw, exists := obj["insert_anchor_links"]; exists {
+		switch val := raw.(type) {
+		case bool:
+			m.InsertAnchorLinks = val
+		case string:
+			s := strings.ToLower(strings.TrimSpace(val))
+			switch s {
+			case "", "none", "false", "off", "0":
+				m.InsertAnchorLinks = false
+			default:
+				m.InsertAnchorLinks = true
+			}
+		default:
+			return fmt.Errorf("markdown.insert_anchor_links has unsupported type %T", raw)
+		}
+	}
+	if raw, exists := obj["external_links_target_blank"]; exists {
+		switch val := raw.(type) {
+		case bool:
+			m.ExternalLinksTargetBlank = val
+		case string:
+			s := strings.ToLower(strings.TrimSpace(val))
+			m.ExternalLinksTargetBlank = s == "true" || s == "1" || s == "yes" || s == "on"
+		default:
+			return fmt.Errorf("markdown.external_links_target_blank has unsupported type %T", raw)
+		}
+	}
+	if raw, exists := obj["highlight_code"]; exists {
+		switch val := raw.(type) {
+		case bool:
+			m.HighlightCode = val
+		case string:
+			s := strings.ToLower(strings.TrimSpace(val))
+			m.HighlightCode = s == "true" || s == "1" || s == "yes" || s == "on"
+		default:
+			return fmt.Errorf("markdown.highlight_code has unsupported type %T", raw)
+		}
+	}
+
+	return nil
 }
 
 type Search struct {
@@ -56,6 +108,7 @@ type Config struct {
 	Theme               string                     `toml:"theme"`
 	OutputDir           string                     `toml:"output_dir"`
 	DefaultLanguage     string                     `toml:"default_language"`
+	LinkStrategy        string                     `toml:"link_strategy"`
 	Languages           map[string]LanguageOptions `toml:"languages"`
 	CompileSass         bool                       `toml:"compile_sass"`
 	BuildSearchIndex    bool                       `toml:"build_search_index"`
@@ -78,6 +131,7 @@ func Default() Config {
 		BaseURL:           "http://127.0.0.1:1111",
 		OutputDir:         "public",
 		DefaultLanguage:   "en",
+		LinkStrategy:      "absolute",
 		CompileSass:       true,
 		BuildSearchIndex:  false,
 		GenerateFeeds:     false,
@@ -86,7 +140,9 @@ func Default() Config {
 		MinifyHTML:        false,
 		Taxonomies:        []TaxonomyConfig{},
 		Markdown: Markdown{
-			InsertAnchorLinks: false,
+			InsertAnchorLinks:        false,
+			ExternalLinksTargetBlank: false,
+			HighlightCode:            false,
 		},
 		Search: Search{
 			BuildIndex: false,
@@ -158,6 +214,14 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.DefaultLanguage) == "" {
 		return errors.New("default_language must not be empty")
+	}
+	if c.LinkStrategy == "" {
+		c.LinkStrategy = "absolute"
+	}
+	switch strings.ToLower(strings.TrimSpace(c.LinkStrategy)) {
+	case "absolute", "relative":
+	default:
+		return fmt.Errorf("link_strategy must be one of: absolute, relative")
 	}
 	if c.Search.IndexPath == "" {
 		return errors.New("search.index_path must not be empty")

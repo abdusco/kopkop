@@ -62,20 +62,30 @@ func TestManagerHelpers(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, png.Encode(imgFile, img))
 	require.NoError(t, imgFile.Close())
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test.txt"), []byte(`{{ "abc"|base64_encode }}|{{ "YWJj"|base64_decode }}|{{ "a1b2"|regex_replace("[0-9]", "") }}|{{ get_url("posts/hello") }}|{{ load_data("data.txt") }}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test.txt"), []byte(`{{ "abc"|base64_encode }}|{{ "YWJj"|base64_decode }}|{{ "a1b2"|regex_replace("[0-9]", "") }}|{{ get_url("posts/hello") }}|{{ get_url(path="posts/hello", absolute=false) }}|{{ load_data("data.txt") }}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test-url.html"), []byte(`<a href='{{ get_url(path="posts/hello") }}'>x</a>`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test-image.txt"), []byte(`{% set md = get_image_metadata("images/sample.png") %}{{ md.width }}x{{ md.height }}|{{ resize_image("images/sample.png", 4, 2) }}`), 0o644))
 
 	mgr, err := LoadManager(root, "")
 	require.NoError(t, err)
 
-	out, err := mgr.Render("test.txt", map[string]any{})
+	out, err := mgr.Render("test.txt", map[string]any{
+		"config": map[string]any{"base_url": "https://example.com"},
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "YWJj|abc|ab|/posts/hello|hello", out)
+	assert.Equal(t, "YWJj|abc|ab|https://example.com/posts/hello|/posts/hello|hello", out)
 
 	imgOut, err := mgr.Render("test-image.txt", map[string]any{})
 	require.NoError(t, err)
 	assert.Contains(t, imgOut, "10x5|")
 	assert.Contains(t, imgOut, "/processed_images/")
+
+	htmlOut, err := mgr.Render("test-url.html", map[string]any{
+		"config": map[string]any{"base_url": "https://example.com"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, htmlOut, "https://example.com/posts/hello")
+	assert.NotContains(t, htmlOut, "&#x2F;")
 }
 
 func TestLookupHelpers(t *testing.T) {
@@ -101,6 +111,23 @@ func TestLookupHelpers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "PageA|Blog|tags|/tags/go-lang/", out)
+}
+
+func TestGetURL_UsesConfigLinkStrategy(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "url.txt"), []byte(`{{ get_url("posts/hello") }}`), 0o644))
+
+	mgr, err := LoadManager(root, "")
+	require.NoError(t, err)
+
+	out, err := mgr.Render("url.txt", map[string]any{
+		"config": map[string]any{"base_url": "https://example.com", "link_strategy": "relative"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "/posts/hello", out)
 }
 
 func TestNormalizeTemplateSyntax_NamedEndTags(t *testing.T) {

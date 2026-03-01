@@ -80,6 +80,7 @@ func runInit(args []string) error {
 title = "My Site"
 description = ""
 output_dir = "public"
+link_strategy = "absolute"
 compile_sass = true
 build_search_index = false
 generate_sitemap = true
