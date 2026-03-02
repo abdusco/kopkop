@@ -3,12 +3,14 @@ package search
 import (
 	"encoding/json"
 	"fmt"
+	stdhtml "html"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/abdusco/kopkop/internal/content"
+	"golang.org/x/net/html"
 )
 
 type Entry struct {
@@ -147,7 +149,45 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 }
 
 func stripTags(s string) string {
-	replacer := strings.NewReplacer("<", " ", ">", " ", "\n", " ", "\t", " ")
-	out := replacer.Replace(s)
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	doc, err := html.Parse(strings.NewReader(s))
+	if err != nil {
+		replacer := strings.NewReplacer("<", " ", ">", " ", "\n", " ", "\t", " ")
+		out := replacer.Replace(s)
+		return strings.Join(strings.Fields(out), " ")
+	}
+
+	var b strings.Builder
+	var walk func(n *html.Node, hidden bool)
+	walk = func(n *html.Node, hidden bool) {
+		if n == nil {
+			return
+		}
+		nowHidden := hidden || isHiddenElement(n)
+		if n.Type == html.TextNode && !nowHidden {
+			b.WriteString(n.Data)
+			b.WriteByte(' ')
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c, nowHidden)
+		}
+	}
+	walk(doc, false)
+
+	out := stdhtml.UnescapeString(b.String())
 	return strings.Join(strings.Fields(out), " ")
+}
+
+func isHiddenElement(n *html.Node) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+	switch strings.ToLower(n.Data) {
+	case "script", "style", "noscript", "template":
+		return true
+	default:
+		return false
+	}
 }
