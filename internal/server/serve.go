@@ -43,7 +43,7 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 	}
 
 	liveAddr := fmt.Sprintf("ws://%s:%d/__livereload", opts.Interface, opts.Port)
-	bMode := site.BuildDisk
+	bMode := site.BuildMemory
 	if opts.StoreHTML {
 		bMode = site.BuildBoth
 	}
@@ -102,20 +102,17 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 		}
 	}
 
+	rebuildTrigger := make(chan struct{}, 1)
 	go func() {
-		var timer *time.Timer
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-watcher.Events:
-				if timer != nil {
-					timer.Stop()
-				}
-				timer = time.AfterFunc(opts.Debounce, func() {
+			case <-rebuildTrigger:
+				for {
 					if err := s.Load(opts.IncludeDrafts); err != nil {
 						log.Printf("reload load error: %v", err)
-						return
+						break
 					}
 					if err := s.Build(site.BuildOptions{
 						IncludeDrafts: opts.IncludeDrafts,
@@ -124,12 +121,62 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 						Force:         true,
 					}); err != nil {
 						log.Printf("reload build error: %v", err)
-						return
+						break
 					}
 					hub.broadcast("reload")
-				})
+
+					hasPending := false
+					for {
+						select {
+						case <-rebuildTrigger:
+							hasPending = true
+						default:
+							if !hasPending {
+								goto workerDone
+							}
+							goto nextBuild
+						}
+					}
+				nextBuild:
+				}
+			workerDone:
+			}
+		}
+	}()
+
+	go func() {
+		var timer *time.Timer
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-watcher.Events:
+				if timer == nil {
+					timer = time.NewTimer(opts.Debounce)
+				} else {
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(opts.Debounce)
+				}
 			case err := <-watcher.Errors:
 				log.Printf("watcher error: %v", err)
+			default:
+				if timer != nil {
+					select {
+					case <-timer.C:
+						select {
+						case rebuildTrigger <- struct{}{}:
+						default:
+						}
+						timer = nil
+					default:
+					}
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
 		}
 	}()

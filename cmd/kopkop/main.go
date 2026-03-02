@@ -148,7 +148,7 @@ func runServe(args []string) error {
 	interfaceIP := fs.String("interface", "127.0.0.1", "bind interface")
 	port := fs.Int("port", 1111, "bind port")
 	drafts := fs.Bool("drafts", false, "include drafts")
-	storeHTML := fs.Bool("store-html", false, "store content in memory and disk")
+	storeHTML := fs.Bool("store-html", false, "store generated HTML in memory and disk (default: memory only)")
 	open := fs.Bool("open", false, "open browser")
 	fast := fs.Bool("fast", false, "fast mode")
 	force := fs.Bool("force", true, "overwrite output")
