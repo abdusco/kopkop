@@ -234,6 +234,33 @@ func (c Config) Validate() error {
 	return nil
 }
 
+func (c Config) TemplateView(lang string) map[string]any {
+	title := c.Title
+	if opts, ok := c.Languages[lang]; ok {
+		if v := strings.TrimSpace(opts.Title); v != "" {
+			title = v
+		}
+	}
+	linkStrategy := strings.TrimSpace(c.LinkStrategy)
+	if linkStrategy == "" {
+		linkStrategy = "absolute"
+	}
+
+	return map[string]any{
+		"base_url":           c.BaseURL,
+		"title":              title,
+		"description":        c.Description,
+		"author":             c.Author,
+		"default_language":   c.DefaultLanguage,
+		"output_dir":         c.OutputDir,
+		"link_strategy":      linkStrategy,
+		"build_search_index": c.BuildSearchIndex,
+		"generate_feeds":     c.GenerateFeeds,
+		"generate_sitemap":   c.GenerateSitemap,
+		"extra":              c.Extra,
+	}
+}
+
 func (c Config) MakePermalink(p string) string {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if !strings.HasPrefix(p, "/") {

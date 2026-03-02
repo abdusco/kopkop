@@ -294,13 +294,7 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 
 func (s *Site) baseTemplateContext(lang string) map[string]any {
 	ctx := map[string]any{
-		"config": map[string]any{
-			"base_url":         s.Config.BaseURL,
-			"title":            s.Config.Title,
-			"description":      s.Config.Description,
-			"default_language": s.Config.DefaultLanguage,
-			"extra":            s.Config.Extra,
-		},
+		"config":         s.Config.TemplateView(lang),
 		"__pages":        s.serializedPages(),
 		"__sections":     s.serializedSections(),
 		"__taxonomies":   s.serializedTaxonomies(),
@@ -1620,7 +1614,7 @@ func slugifyURLSegment(in string) string {
 }
 
 func (s *Site) render404(liveReloadURL string) error {
-	content, err := s.Templates.Render("404.html", map[string]any{"config": map[string]any{"base_url": s.Config.BaseURL}})
+	content, err := s.Templates.Render("404.html", map[string]any{"config": s.Config.TemplateView(s.Config.DefaultLanguage)})
 	if err != nil {
 		content = "<html><body><h1>404</h1></body></html>"
 	}
@@ -1629,7 +1623,7 @@ func (s *Site) render404(liveReloadURL string) error {
 }
 
 func (s *Site) renderRobots() error {
-	content, err := s.Templates.Render("robots.txt", map[string]any{"config": map[string]any{"base_url": s.Config.BaseURL}})
+	content, err := s.Templates.Render("robots.txt", map[string]any{"config": s.Config.TemplateView(s.Config.DefaultLanguage)})
 	if err != nil {
 		content = "User-agent: *\nAllow: /\n"
 	}

@@ -87,3 +87,24 @@ func TestConfigValidate_LinkStrategy(t *testing.T) {
 	cfg.LinkStrategy = "weird"
 	require.Error(t, cfg.Validate())
 }
+
+func TestTemplateView_UsesLanguageTitleAndIncludesLinkStrategy(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.BaseURL = "https://example.com"
+	cfg.Title = "Default Title"
+	cfg.LinkStrategy = "relative"
+	cfg.Extra = map[string]any{"k": "v"}
+	cfg.Languages = map[string]LanguageOptions{
+		"fr": {Title: "Titre FR"},
+	}
+
+	fr := cfg.TemplateView("fr")
+	assert.Equal(t, "Titre FR", fr["title"])
+	assert.Equal(t, "relative", fr["link_strategy"])
+	assert.Equal(t, "https://example.com", fr["base_url"])
+
+	en := cfg.TemplateView("en")
+	assert.Equal(t, "Default Title", en["title"])
+}
