@@ -58,8 +58,8 @@ func TestManagerHelpers(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "images"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "data.txt"), []byte("hello"), 0o644))
 	img := image.NewRGBA(image.Rect(0, 0, 10, 5))
-	for y := 0; y < 5; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 5 {
+		for x := range 10 {
 			img.Set(x, y, color.RGBA{R: 255, A: 255})
 		}
 	}

@@ -262,13 +262,13 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 		if strings.HasSuffix(name, ".md") {
 			fileType = "md"
 		}
-		if strings.HasPrefix(name, "shortcodes/") {
-			scName := strings.TrimSuffix(strings.TrimPrefix(name, "shortcodes/"), filepath.Ext(name))
+		if rest, ok := strings.CutPrefix(name, "shortcodes/"); ok {
+			scName := strings.TrimSuffix(rest, filepath.Ext(rest))
 			defs[scName] = ShortcodeDefinition{Name: scName, FileType: fileType, Template: name}
 			continue
 		}
-		if strings.HasPrefix(name, "__zola_builtins/shortcodes/") {
-			scName := strings.TrimSuffix(strings.TrimPrefix(name, "__zola_builtins/shortcodes/"), filepath.Ext(name))
+		if rest, ok := strings.CutPrefix(name, "__zola_builtins/shortcodes/"); ok {
+			scName := strings.TrimSuffix(rest, filepath.Ext(rest))
 			if _, exists := defs[scName]; exists {
 				continue
 			}
@@ -276,8 +276,8 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 			continue
 		}
 
-		if idx := strings.Index(name, "/templates/shortcodes/"); idx != -1 {
-			scName := strings.TrimSuffix(name[idx+len("/templates/shortcodes/"):], filepath.Ext(name))
+		if _, rest, ok := strings.Cut(name, "/templates/shortcodes/"); ok {
+			scName := strings.TrimSuffix(rest, filepath.Ext(rest))
 			defs[scName] = ShortcodeDefinition{Name: scName, FileType: fileType, Template: name}
 		}
 	}
