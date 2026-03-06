@@ -88,6 +88,73 @@ func TestManagerHelpers(t *testing.T) {
 	assert.NotContains(t, htmlOut, "&#x2F;")
 }
 
+func TestLoadData(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		data     map[string]string
+		template string
+		want     string
+	}{
+		{
+			name:     "json object field access",
+			data:     map[string]string{"data.json": `{"name":"Alice","age":30}`},
+			template: `{{ load_data("data.json").name }}`,
+			want:     "Alice",
+		},
+		{
+			name:     "json array iteration",
+			data:     map[string]string{"list.json": `["a","b","c"]`},
+			template: `{% for x in load_data("list.json") %}{{ x }}{% endfor %}`,
+			want:     "abc",
+		},
+		{
+			name:     "toml field access",
+			data:     map[string]string{"data.toml": "name = \"Bob\"\n"},
+			template: `{{ load_data("data.toml").name }}`,
+			want:     "Bob",
+		},
+		{
+			name:     "yaml field access",
+			data:     map[string]string{"data.yaml": "name: Carol\n"},
+			template: `{{ load_data("data.yaml").name }}`,
+			want:     "Carol",
+		},
+		{
+			name:     "csv headers and records",
+			data:     map[string]string{"data.csv": "id,name\n1,Alice\n2,Bob\n"},
+			template: `{{ load_data("data.csv").headers | join(",") }}:{{ load_data("data.csv").records | length }}`,
+			want:     "id,name:2",
+		},
+		{
+			name:     "format=plain overrides json extension",
+			data:     map[string]string{"raw.json": `{"x":1}`},
+			template: `{{ load_data("raw.json", format="plain") }}`,
+			want:     `{"x":1}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+			for name, content := range tc.data {
+				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(content), 0o644))
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "t.txt"), []byte(tc.template), 0o644))
+
+			mgr, err := LoadManager(root, "")
+			require.NoError(t, err)
+
+			out, err := mgr.Render("t.txt", map[string]any{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, out)
+		})
+	}
+}
+
 func TestLookupHelpers(t *testing.T) {
 	t.Parallel()
 

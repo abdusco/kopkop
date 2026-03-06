@@ -344,7 +344,7 @@ When `paginate_by` is set, `paginator` contains: `current_index`, `number_pagers
 | `get_taxonomy_url(kind=..., name=...)` | Get the URL for a taxonomy term. |
 | `now()` | Current UTC time as RFC3339 string. |
 | `get_env(name=..., default=...)` | Read an environment variable. |
-| `load_data(path)` | Load a file relative to the site root as a string. |
+| `load_data(path, format=...)` | Load a file relative to the site root. JSON, TOML, YAML, and CSV files are parsed into structured data; everything else is returned as a plain string. The optional `format` kwarg (`"json"`, `"toml"`, `"yaml"`, `"csv"`, `"plain"`) overrides extension-based detection. CSV files return `{headers, records}`. |
 | `get_hash(path, base64=false)` | SHA-384 hash of a file or string. |
 | `get_image_metadata(path)` | Returns `{width, height, format}` for an image. |
 | `resize_image(path, width, height)` | Resize an image and return its URL. |

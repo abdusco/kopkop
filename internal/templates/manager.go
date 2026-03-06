@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"math"
@@ -14,9 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	minijinja "github.com/mitsuhiko/minijinja/minijinja-go/v2"
 	"github.com/mitsuhiko/minijinja/minijinja-go/v2/value"
 	"github.com/samber/lo"
+	"gopkg.in/yaml.v3"
 
 	"github.com/abdusco/kopkop/internal/imageproc"
 	"github.com/abdusco/kopkop/internal/markdown"
@@ -388,7 +392,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 
 	env.AddFunction("load_data", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		_ = state
-		_ = kwargs
 		if len(args) == 0 {
 			return value.Undefined(), fmt.Errorf("load_data expects a file path")
 		}
@@ -401,7 +404,60 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		if err != nil {
 			return value.Undefined(), err
 		}
-		return value.FromString(string(b)), nil
+
+		format := strings.TrimPrefix(strings.ToLower(filepath.Ext(abs)), ".")
+		if fmtVal, ok := kwargs["format"]; ok {
+			if s, ok := fmtVal.AsString(); ok {
+				format = s
+			}
+		}
+
+		switch format {
+		case "json":
+			var parsed any
+			if err := json.Unmarshal(b, &parsed); err != nil {
+				return value.Undefined(), fmt.Errorf("load_data: JSON parse error: %w", err)
+			}
+			return value.FromAny(parsed), nil
+		case "toml":
+			var parsed any
+			if err := toml.Unmarshal(b, &parsed); err != nil {
+				return value.Undefined(), fmt.Errorf("load_data: TOML parse error: %w", err)
+			}
+			return value.FromAny(parsed), nil
+		case "yaml", "yml":
+			var parsed any
+			if err := yaml.Unmarshal(b, &parsed); err != nil {
+				return value.Undefined(), fmt.Errorf("load_data: YAML parse error: %w", err)
+			}
+			return value.FromAny(parsed), nil
+		case "csv":
+			r := csv.NewReader(strings.NewReader(string(b)))
+			records, err := r.ReadAll()
+			if err != nil {
+				return value.Undefined(), fmt.Errorf("load_data: CSV parse error: %w", err)
+			}
+			headers := []value.Value{}
+			dataRecords := []value.Value{}
+			if len(records) > 0 {
+				for _, h := range records[0] {
+					headers = append(headers, value.FromString(h))
+				}
+				for _, row := range records[1:] {
+					cells := make([]value.Value, len(row))
+					for i, cell := range row {
+						cells[i] = value.FromString(cell)
+					}
+					dataRecords = append(dataRecords, value.FromSlice(cells))
+				}
+			}
+			return value.FromMap(map[string]value.Value{
+				"headers": value.FromSlice(headers),
+				"records": value.FromSlice(dataRecords),
+			}), nil
+		default:
+			return value.FromString(string(b)), nil
+		}
 	})
 
 	env.AddFunction("get_hash", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
