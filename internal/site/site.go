@@ -23,6 +23,8 @@ import (
 	"github.com/abdusco/kopkop/internal/search"
 	"github.com/abdusco/kopkop/internal/templates"
 	"github.com/samber/lo"
+	"github.com/tdewolff/minify/v2"
+	minifyhtml "github.com/tdewolff/minify/v2/html"
 )
 
 type BuildMode int
@@ -55,7 +57,12 @@ type Site struct {
 	MemoryContent map[string]string
 }
 
-var htmlSpaceRe = regexp.MustCompile(`\s+`)
+var htmlMinifier = func() *minify.M {
+	m := minify.New()
+	m.AddFunc("text/html", minifyhtml.Minify)
+	return m
+}()
+
 var shortcodeParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(shortcode.Placeholder) + `\s*</p>`)
 var continueReadingMarkerRe = regexp.MustCompile(`(?s)<span\s+id=["']continue-reading["']\s*></span>`)
 
@@ -1468,11 +1475,11 @@ func (s *Site) writeOutput(rel string, content string) error {
 }
 
 func minifyHTML(in string) string {
-	// TODO: use proper minimizer that doesn't break things like <pre> and <code>
-	trimmed := strings.TrimSpace(in)
-	trimmed = htmlSpaceRe.ReplaceAllString(trimmed, " ")
-	trimmed = strings.ReplaceAll(trimmed, "> <", "><")
-	return trimmed
+	out, err := htmlMinifier.String("text/html", in)
+	if err != nil {
+		return in
+	}
+	return out
 }
 
 func injectLiveReload(html string, reloadURL string) string {

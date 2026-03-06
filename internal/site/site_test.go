@@ -88,7 +88,7 @@ func TestMinifyHTML(t *testing.T) {
 
 	in := "<html>\n  <body>  <h1> Hi </h1> </body>\n</html>"
 	out := minifyHTML(in)
-	require.Equal(t, "<html><body><h1> Hi </h1></body></html>", out)
+	require.Equal(t, "<h1>Hi</h1>", out)
 }
 
 func TestSiteBuild_ConcurrentDeterministicOutput(t *testing.T) {
