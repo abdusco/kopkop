@@ -386,32 +386,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		return value.FromString("/" + kind + "/" + slug + "/"), nil
 	})
 
-	env.AddFunction("trans", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = kwargs
-		if len(args) == 0 {
-			return value.Undefined(), fmt.Errorf("trans expects key")
-		}
-		key, ok := args[0].AsString()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("trans key must be string")
-		}
-		translations := state.Lookup("__translations")
-		lang := ""
-		if langV, ok := state.Lookup("lang").AsString(); ok {
-			lang = langV
-		}
-		if m, ok := translations.AsMap(); ok {
-			if lv, ok := m[lang]; ok {
-				if lm, ok := lv.AsMap(); ok {
-					if tv, ok := lm[key]; ok {
-						return tv, nil
-					}
-				}
-			}
-		}
-		return value.FromString(key), nil
-	})
-
 	env.AddFunction("load_data", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		_ = state
 		_ = kwargs

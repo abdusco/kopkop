@@ -158,13 +158,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if s.Config.BuildSearchIndex || s.Config.Search.BuildIndex {
-		enabledLangs := map[string]bool{s.Config.DefaultLanguage: true}
-		for lang, opts := range s.Config.Languages {
-			if opts.BuildSearchIndex {
-				enabledLangs[lang] = true
-			}
-		}
-		if err := search.BuildIndexForLanguages(s.Library, s.OutputPath, s.Config.Search.IndexPath, enabledLangs); err != nil {
+		if err := search.BuildIndex(s.Library, s.OutputPath, s.Config.Search.IndexPath); err != nil {
 			return err
 		}
 	}
@@ -230,12 +224,11 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			}
 
 			tplName := s.pageTemplateFor(pg)
-			ctx := s.baseTemplateContext(pg.Lang)
+			ctx := s.baseTemplateContext()
 			ctx["page"] = s.pageView(rel, pg)
 			if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
 				ctx["section"] = s.sectionView(pg.ParentSection, sec, s.sectionPageEntries(sec))
 			}
-			ctx["lang"] = pg.Lang
 			ctx["current_url"] = pg.Permalink
 			ctx["current_path"] = pg.Path
 			html, err := s.Templates.Render(tplName, ctx)
@@ -289,53 +282,17 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 	return nil
 }
 
-func (s *Site) baseTemplateContext(lang string) map[string]any {
+func (s *Site) baseTemplateContext() map[string]any {
 	ctx := map[string]any{
-		"config":         s.Config.TemplateView(lang),
-		"__pages":        s.serializedPages(),
-		"__sections":     s.serializedSections(),
-		"__taxonomies":   s.serializedTaxonomies(),
-		"__translations": map[string]any{},
-		"lang":           lang,
+		"config":       s.Config.TemplateView(),
+		"__pages":      s.serializedPages(),
+		"__sections":   s.serializedSections(),
+		"__taxonomies": s.serializedTaxonomies(),
 	}
 	return ctx
 }
 
 func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
-	transRels := make([]string, 0, len(pg.Translations))
-	transRels = append(transRels, pg.Translations...)
-	sort.SliceStable(transRels, func(i, j int) bool {
-		li := ""
-		lj := ""
-		if tp := s.Library.Pages[transRels[i]]; tp != nil {
-			li = tp.Lang
-		}
-		if tp := s.Library.Pages[transRels[j]]; tp != nil {
-			lj = tp.Lang
-		}
-		if li == s.Config.DefaultLanguage && lj != s.Config.DefaultLanguage {
-			return true
-		}
-		if li != s.Config.DefaultLanguage && lj == s.Config.DefaultLanguage {
-			return false
-		}
-		if li != lj {
-			return li < lj
-		}
-		return transRels[i] < transRels[j]
-	})
-
-	trans := make([]map[string]any, 0, len(transRels))
-	for _, tRel := range transRels {
-		if tp, ok := s.Library.Pages[tRel]; ok {
-			trans = append(trans, map[string]any{
-				"path":      tRel,
-				"lang":      tp.Lang,
-				"title":     tp.Meta.Title,
-				"permalink": tp.Permalink,
-			})
-		}
-	}
 	earlier, later := s.pageNeighbors(rel, pg)
 	extra := pg.Meta.Extra
 	if extra == nil {
@@ -373,7 +330,6 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"path":          pg.Path,
 		"relative_path": pg.RelativePath,
 		"permalink":     pg.Permalink,
-		"lang":          pg.Lang,
 		"toc":           s.tocView(pg.TOC),
 		"summary":       pg.Summary,
 		"slug":          slug,
@@ -382,7 +338,6 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"extra":         extra,
 		"earlier":       earlier,
 		"later":         later,
-		"translations":  trans,
 		"assets":        pg.Assets,
 		"taxonomies":    taxonomies,
 		"aliases":       pg.Meta.Aliases,
@@ -391,57 +346,6 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 }
 
 func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]any) map[string]any {
-	trans := make([]map[string]any, 0, len(sec.Translations))
-	transByLang := map[string]map[string]any{}
-	for _, tRel := range sec.Translations {
-		if ts, ok := s.Library.Sections[tRel]; ok {
-			entry := map[string]any{
-				"path":      tRel,
-				"lang":      ts.Lang,
-				"title":     ts.Meta.Title,
-				"permalink": ts.Permalink,
-			}
-			trans = append(trans, entry)
-			transByLang[ts.Lang] = entry
-		}
-	}
-	if isRootSectionPath(sec.RelativePath) {
-		langs := append([]string{s.Config.DefaultLanguage}, lo.Keys(s.Config.Languages)...)
-		all := make([]map[string]any, 0, len(langs))
-		for _, lang := range langs {
-			if entry, ok := transByLang[lang]; ok {
-				all = append(all, entry)
-				continue
-			}
-			path := "_index.md"
-			permalink := strings.TrimRight(s.Config.BaseURL, "/") + "/"
-			if lang != s.Config.DefaultLanguage {
-				path = "_index." + lang + ".md"
-				permalink = strings.TrimRight(s.Config.BaseURL, "/") + "/" + lang + "/"
-			}
-			all = append(all, map[string]any{
-				"path":      path,
-				"lang":      lang,
-				"title":     "",
-				"permalink": permalink,
-			})
-		}
-		sort.SliceStable(all, func(i, j int) bool {
-			li := fmt.Sprint(all[i]["lang"])
-			lj := fmt.Sprint(all[j]["lang"])
-			if li == s.Config.DefaultLanguage && lj != s.Config.DefaultLanguage {
-				return true
-			}
-			if li != s.Config.DefaultLanguage && lj == s.Config.DefaultLanguage {
-				return false
-			}
-			if li != lj {
-				return li > lj
-			}
-			return fmt.Sprint(all[i]["path"]) < fmt.Sprint(all[j]["path"])
-		})
-		trans = all
-	}
 	return map[string]any{
 		"title":             sec.Meta.Title,
 		"description":       sec.Meta.Description,
@@ -454,7 +358,6 @@ func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]
 		"paginate_by":       sec.Meta.PaginateBy,
 		"paginate_path":     sec.Meta.PaginatePath,
 		"paginate_reversed": sec.Meta.PaginateReversed,
-		"translations":      trans,
 	}
 }
 
@@ -479,7 +382,6 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		"title":     pg.Meta.Title,
 		"path":      pg.Path,
 		"permalink": pg.Permalink,
-		"lang":      pg.Lang,
 		"toc":       []map[string]any{},
 		"extra":     map[string]any{},
 	}
@@ -597,7 +499,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 				continue
 			}
 
-			ctx := s.baseTemplateContext(sec.Lang)
+			ctx := s.baseTemplateContext()
 			ctx["current_url"] = sectionPagerPermalink(sec.Path, sec.Permalink, strings.Trim(sec.Meta.PaginatePath, "/"), 1)
 			ctx["current_path"] = sec.Path
 			ctx["section"] = s.sectionView(rel, sec, plan.Pages)
@@ -645,9 +547,8 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		}
 	}
 
-	defaultRoot, hasDefaultRoot := s.Library.Sections["_index.md"]
-	if !hasDefaultRoot && s.templateExists("index.html") {
-		ctx := s.baseTemplateContext(s.Config.DefaultLanguage)
+	if _, hasDefaultRoot := s.Library.Sections["_index.md"]; !hasDefaultRoot && s.templateExists("index.html") {
+		ctx := s.baseTemplateContext()
 		ctx["section"] = map[string]any{
 			"title":             "",
 			"description":       "",
@@ -660,7 +561,6 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			"paginate_by":       0,
 			"paginate_path":     "",
 			"paginate_reversed": false,
-			"translations":      []map[string]any{},
 		}
 		ctx["page"] = map[string]any{
 			"title":       s.Config.Title,
@@ -675,63 +575,6 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		html = injectLiveReload(html, liveReloadURL)
 		if err := s.writeOutput("index.html", html); err != nil {
 			return err
-		}
-	}
-	if hasDefaultRoot {
-		for lang := range s.Config.Languages {
-			if lang == s.Config.DefaultLanguage {
-				continue
-			}
-			if _, ok := s.Library.Sections["_index."+lang+".md"]; ok {
-				continue
-			}
-			ctx := s.baseTemplateContext(lang)
-			translations := make([]map[string]any, 0)
-			for _, tLang := range append([]string{s.Config.DefaultLanguage}, lo.Keys(s.Config.Languages)...) {
-				tRel := "_index.md"
-				if tLang != s.Config.DefaultLanguage {
-					tRel = "_index." + tLang + ".md"
-				}
-				tPermalink := strings.TrimRight(s.Config.BaseURL, "/") + "/"
-				tTitle := ""
-				if tLang != s.Config.DefaultLanguage {
-					tPermalink = strings.TrimRight(s.Config.BaseURL, "/") + "/" + tLang + "/"
-				}
-				if ts, ok := s.Library.Sections[tRel]; ok {
-					tPermalink = ts.Permalink
-					tTitle = ts.Meta.Title
-				}
-				translations = append(translations, map[string]any{"path": tRel, "lang": tLang, "title": tTitle, "permalink": tPermalink})
-			}
-			sort.SliceStable(translations, func(i, j int) bool {
-				return fmt.Sprint(translations[i]["path"]) < fmt.Sprint(translations[j]["path"])
-			})
-			ctx["section"] = map[string]any{
-				"title":             defaultRoot.Meta.Title,
-				"description":       defaultRoot.Meta.Description,
-				"path":              "/" + lang + "/",
-				"relative_path":     "_index." + lang + ".md",
-				"permalink":         strings.TrimRight(s.Config.BaseURL, "/") + "/" + lang + "/",
-				"pages":             []map[string]any{},
-				"subsections":       []string{},
-				"content":           defaultRoot.Content,
-				"paginate_by":       0,
-				"paginate_path":     "",
-				"paginate_reversed": false,
-				"translations":      translations,
-			}
-			rootTpl := "section.html"
-			if s.templateExists("index.html") {
-				rootTpl = "index.html"
-			}
-			html, err := s.Templates.Render(rootTpl, ctx)
-			if err != nil {
-				html = "<html><body><h1>" + defaultRoot.Meta.Title + "</h1><pre>" + err.Error() + "</pre></body></html>"
-			}
-			html = injectLiveReload(html, liveReloadURL)
-			if err := s.writeOutput(filepath.Join(lang, "index.html"), html); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -773,32 +616,18 @@ func (s *Site) pageAnchorLinksEnabled(pg *content.Page) bool {
 }
 
 func sectionParentRel(sectionRelPath string) string {
-	lang := ""
-	parts := strings.Split(filepath.Base(sectionRelPath), ".")
-	if len(parts) >= 3 {
-		lang = parts[len(parts)-2]
-	}
 	dir := filepath.ToSlash(filepath.Dir(sectionRelPath))
 	if dir == "." || dir == "" {
-		if lang == "" {
-			return "_index.md"
-		}
-		return "_index." + lang + ".md"
+		return "_index.md"
 	}
 	parentDir := filepath.ToSlash(filepath.Dir(dir))
 	if parentDir == "." {
 		parentDir = ""
 	}
 	if parentDir == "" {
-		if lang == "" {
-			return "_index.md"
-		}
-		return "_index." + lang + ".md"
+		return "_index.md"
 	}
-	if lang == "" {
-		return parentDir + "/_index.md"
-	}
-	return parentDir + "/_index." + lang + ".md"
+	return parentDir + "/_index.md"
 }
 
 func (s *Site) pageTemplateFor(pg *content.Page) string {
@@ -1004,107 +833,110 @@ func sectionPagerPermalink(sectionPath, sectionPermalink, paginatePath string, i
 
 func (s *Site) renderTaxonomies(liveReloadURL string) error {
 	for _, tax := range s.Library.Taxonomies {
-		termsByLang := map[string]map[string][]map[string]any{}
+		taxListPath := "/" + slugifyURLSegment(tax.Name) + "/"
+		termItems := make([]map[string]any, 0, len(tax.Terms))
 		for termName, term := range tax.Terms {
+			pathSlug := slugifyURLSegment(termName)
+			taxPath := taxListPath + pathSlug + "/"
+			entries := make([]map[string]any, 0, len(term.Pages))
 			for _, rel := range term.Pages {
 				pg := s.Library.Pages[rel]
 				if pg == nil {
 					continue
 				}
-				if termsByLang[pg.Lang] == nil {
-					termsByLang[pg.Lang] = map[string][]map[string]any{}
-				}
-				termsByLang[pg.Lang][termName] = append(termsByLang[pg.Lang][termName], s.pageView(rel, pg))
+				entries = append(entries, s.pageView(rel, pg))
 			}
+			termItems = append(termItems, map[string]any{
+				"name":      termName,
+				"slug":      pathSlug,
+				"path":      taxPath,
+				"permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxPath,
+				"pages":     entries,
+				"count":     len(entries),
+			})
+		}
+		sort.SliceStable(termItems, func(i, j int) bool {
+			return termItems[i]["name"].(string) > termItems[j]["name"].(string)
+		})
+
+		ctxList := s.baseTemplateContext()
+		ctxList["current_path"] = taxListPath
+		ctxList["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxListPath
+		ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": termItems}
+		ctxList["terms"] = termItems
+		listHTML, listErr := s.renderFirstTemplate([]string{
+			tax.Name + "/list.html",
+			slugifyURLSegment(tax.Name) + "/list.html",
+			"taxonomy_list.html",
+		}, ctxList)
+		if listErr != nil {
+			var b strings.Builder
+			b.WriteString("\n")
+			for _, term := range termItems {
+				b.WriteString("    ")
+				b.WriteString(term["name"].(string))
+				b.WriteString("  ")
+				b.WriteString(term["slug"].(string))
+				b.WriteString(" ")
+				b.WriteString(strconv.Itoa(term["count"].(int)))
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+			listHTML = b.String()
+		}
+		listHTML = injectLiveReload(listHTML, liveReloadURL)
+		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxListPath, "/"), "index.html"), listHTML); err != nil {
+			return err
 		}
 
-		for lang, termsMap := range termsByLang {
-			termItems := make([]map[string]any, 0, len(termsMap))
-			for termName, entries := range termsMap {
-				pathSlug := slugifyURLSegment(termName)
-				termItems = append(termItems, map[string]any{
-					"name":      termName,
-					"slug":      pathSlug,
-					"path":      taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug),
-					"permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug),
-					"pages":     entries,
-					"count":     len(entries),
-				})
-			}
-			sort.SliceStable(termItems, func(i, j int) bool {
-				return termItems[i]["name"].(string) > termItems[j]["name"].(string)
-			})
-
-			ctxList := s.baseTemplateContext(lang)
-			ctxList["current_path"] = taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, "")
-			ctxList["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, "")
-			ctxList["taxonomy"] = map[string]any{"name": tax.Name, "terms": termItems}
-			ctxList["terms"] = termItems
-			listHTML, listErr := s.renderFirstTemplate([]string{
-				tax.Name + "/list.html",
-				slugifyURLSegment(tax.Name) + "/list.html",
-				"taxonomy_list.html",
-			}, ctxList)
-			if listErr != nil {
-				var b strings.Builder
-				b.WriteString("\n")
-				for _, term := range termItems {
-					b.WriteString("    ")
-					b.WriteString(term["name"].(string))
-					b.WriteString("  ")
-					b.WriteString(term["slug"].(string))
-					b.WriteString(" ")
-					b.WriteString(strconv.Itoa(term["count"].(int)))
-					b.WriteString("\n")
+		for termName, term := range tax.Terms {
+			pathSlug := slugifyURLSegment(termName)
+			taxPath := taxListPath + pathSlug + "/"
+			entries := make([]map[string]any, 0, len(term.Pages))
+			for _, rel := range term.Pages {
+				pg := s.Library.Pages[rel]
+				if pg == nil {
+					continue
 				}
-				b.WriteString("\n")
-				listHTML = b.String()
+				entries = append(entries, s.pageView(rel, pg))
 			}
-			listHTML = injectLiveReload(listHTML, liveReloadURL)
-			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, ""), "/"), "index.html"), listHTML); err != nil {
+			ctx := s.baseTemplateContext()
+			ctx["current_path"] = taxPath
+			ctx["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxPath
+			termObj := map[string]any{"name": termName, "slug": pathSlug, "pages": entries, "path": taxPath, "permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxPath}
+			ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
+			ctx["term"] = termObj
+			html, err := s.renderFirstTemplate([]string{
+				tax.Name + "/single.html",
+				slugifyURLSegment(tax.Name) + "/single.html",
+				"taxonomy_single.html",
+			}, ctx)
+			if err != nil {
+				html = "Category: " + termName + "\n\n\n"
+				for _, entry := range entries {
+					html += "    <article>\n        <h3 class=\"post__title\"><a href=\"" + fmt.Sprint(entry["permalink"]) + "\">" + fmt.Sprint(entry["title"]) + "</a></h3>\n    </article>\n"
+				}
+				html += "\n"
+			}
+			html = injectLiveReload(html, liveReloadURL)
+			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxPath, "/"), "index.html"), html); err != nil {
 				return err
 			}
-
-			for termName, entries := range termsMap {
-				pathSlug := slugifyURLSegment(termName)
-				ctx := s.baseTemplateContext(lang)
-				ctx["current_path"] = taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)
-				ctx["current_url"] = strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)
-				termObj := map[string]any{"name": termName, "slug": pathSlug, "pages": entries, "path": taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "permalink": strings.TrimRight(s.Config.BaseURL, "/") + taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)}
-				ctx["taxonomy"] = map[string]any{"name": tax.Name, "term": termName, "pages": entries}
-				ctx["term"] = termObj
-				html, err := s.renderFirstTemplate([]string{
-					tax.Name + "/single.html",
-					slugifyURLSegment(tax.Name) + "/single.html",
-					"taxonomy_single.html",
-				}, ctx)
-				if err != nil {
-					html = "Category: " + termName + "\n\n\n"
-					for _, entry := range entries {
-						html += "    <article>\n        <h3 class=\"post__title\"><a href=\"" + fmt.Sprint(entry["permalink"]) + "\">" + fmt.Sprint(entry["title"]) + "</a></h3>\n    </article>\n"
-					}
-					html += "\n"
-				}
-				html = injectLiveReload(html, liveReloadURL)
-				if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), "index.html"), html); err != nil {
-					return err
-				}
-				if s.taxonomyFeedEnabled(tax.Name, lang) {
-					taxPages := make([]*content.Page, 0)
-					if tx, ok := s.Library.Taxonomies[tax.Name]; ok {
-						if tt, ok := tx.Terms[termName]; ok {
-							for _, rel := range tt.Pages {
-								if p := s.Library.Pages[rel]; p != nil && p.Lang == lang {
-									taxPages = append(taxPages, p)
-								}
+			if s.taxonomyFeedEnabled(tax.Name) {
+				taxPages := make([]*content.Page, 0)
+				if tx, ok := s.Library.Taxonomies[tax.Name]; ok {
+					if tt, ok := tx.Terms[termName]; ok {
+						for _, rel := range tt.Pages {
+							if p := s.Library.Pages[rel]; p != nil {
+								taxPages = append(taxPages, p)
 							}
 						}
 					}
-					for _, feedName := range s.feedFilenames() {
-						feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug)+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, lang, taxPages)
-						if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxonomyPathForLang(lang, s.Config.DefaultLanguage, tax.Name, pathSlug), "/"), feedName), feed); err != nil {
-							return err
-						}
+				}
+				for _, feedName := range s.feedFilenames() {
+					feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxPath+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, taxPages)
+					if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxPath, "/"), feedName), feed); err != nil {
+						return err
 					}
 				}
 			}
@@ -1113,19 +945,6 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 	return nil
 }
 
-func taxonomyPathForLang(lang string, defaultLang string, taxName string, termSlug string) string {
-	base := "/" + slugifyURLSegment(taxName)
-	if lang != "" && lang != defaultLang {
-		base = "/" + lang + base
-	}
-	if termSlug != "" {
-		base += "/" + termSlug
-	}
-	if !strings.HasSuffix(base, "/") {
-		base += "/"
-	}
-	return base
-}
 
 func (s *Site) renderSitemap() error {
 	urls := make([]string, 0, len(s.Library.Permalinks))
@@ -1188,7 +1007,7 @@ func (s *Site) sortedPagesForFeed(pages []*content.Page) []*content.Page {
 	return out
 }
 
-func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang string, pages []*content.Page) string {
+func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, pages []*content.Page) string {
 	ordered := s.sortedPagesForFeed(pages)
 	updated := ""
 	if len(ordered) > 0 {
@@ -1200,13 +1019,7 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang
 
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-	b.WriteString("<feed xmlns=\"http://www.w3.org/2005/Atom\"")
-	if lang != "" {
-		b.WriteString(" xml:lang=\"")
-		b.WriteString(xmlEscape(lang))
-		b.WriteString("\"")
-	}
-	b.WriteString(">\n")
+	b.WriteString("<feed xmlns=\"http://www.w3.org/2005/Atom\">\n")
 	b.WriteString("    <title>")
 	b.WriteString(xmlEscape(title))
 	b.WriteString("</title>\n")
@@ -1228,13 +1041,7 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, lang
 		if p.Date == nil {
 			continue
 		}
-		b.WriteString("    <entry")
-		if p.Lang != "" {
-			b.WriteString(" xml:lang=\"")
-			b.WriteString(xmlEscape(p.Lang))
-			b.WriteString("\"")
-		}
-		b.WriteString(">\n")
+		b.WriteString("    <entry>\n")
 		b.WriteString("        <title>")
 		b.WriteString(xmlEscape(p.Meta.Title))
 		b.WriteString("</title>\n")
@@ -1332,36 +1139,12 @@ func (s *Site) defaultSitemapXML() string {
 			}
 		}
 	}
-	for lang := range s.Config.Languages {
-		if lang == s.Config.DefaultLanguage {
-			continue
-		}
-		if _, ok := s.Library.Sections["_index."+lang+".md"]; ok {
-			continue
-		}
-		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/"] = struct{}{}
-	}
 	for _, tx := range s.Library.Taxonomies {
-		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(s.Config.DefaultLanguage, s.Config.DefaultLanguage, tx.Name, "")] = struct{}{}
-		termsByLang := map[string]map[string]struct{}{}
-		for termName, term := range tx.Terms {
+		taxListPath := "/" + slugifyURLSegment(tx.Name) + "/"
+		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxListPath] = struct{}{}
+		for termName := range tx.Terms {
 			slug := slugifyURLSegment(termName)
-			for _, rel := range term.Pages {
-				pg := s.Library.Pages[rel]
-				if pg == nil {
-					continue
-				}
-				if termsByLang[pg.Lang] == nil {
-					termsByLang[pg.Lang] = map[string]struct{}{}
-				}
-				termsByLang[pg.Lang][slug] = struct{}{}
-			}
-		}
-		for lang, slugs := range termsByLang {
-			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tx.Name, "")] = struct{}{}
-			for slug := range slugs {
-				urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxonomyPathForLang(lang, s.Config.DefaultLanguage, tx.Name, slug)] = struct{}{}
-			}
+			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxListPath+slug+"/"] = struct{}{}
 		}
 	}
 
@@ -1470,48 +1253,14 @@ func extractFrontMatterScalar(sourcePath string, key string) (string, bool) {
 }
 
 func (s *Site) renderFeed() error {
-	pages := make([]map[string]any, 0, len(s.Library.Pages))
-	defaultLangPages := make([]*content.Page, 0, len(s.Library.Pages))
-	pagesByLang := map[string][]map[string]any{}
-	rawPagesByLang := map[string][]*content.Page{}
+	allPages := make([]*content.Page, 0, len(s.Library.Pages))
 	for _, p := range s.Library.Pages {
-		entry := map[string]any{"title": p.Meta.Title, "permalink": p.Permalink}
-		pages = append(pages, entry)
-		if p.Lang == s.Config.DefaultLanguage {
-			defaultLangPages = append(defaultLangPages, p)
-		}
-		pagesByLang[p.Lang] = append(pagesByLang[p.Lang], entry)
-		rawPagesByLang[p.Lang] = append(rawPagesByLang[p.Lang], p)
-	}
-	sort.SliceStable(pages, func(i, j int) bool {
-		return pages[i]["permalink"].(string) < pages[j]["permalink"].(string)
-	})
-	for lang := range pagesByLang {
-		sort.SliceStable(pagesByLang[lang], func(i, j int) bool {
-			return pagesByLang[lang][i]["permalink"].(string) < pagesByLang[lang][j]["permalink"].(string)
-		})
+		allPages = append(allPages, p)
 	}
 	for _, feedName := range s.feedFilenames() {
-		feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, s.Config.DefaultLanguage, defaultLangPages)
+		feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, allPages)
 		if err := s.writeOutput(feedName, feed); err != nil {
 			return err
-		}
-	}
-
-	for lang, langPages := range pagesByLang {
-		if lang == s.Config.DefaultLanguage {
-			continue
-		}
-		opts, ok := s.Config.Languages[lang]
-		if !ok || !opts.GenerateFeeds {
-			continue
-		}
-		_ = langPages
-		for _, feedName := range s.feedFilenames() {
-			langFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+lang+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, lang, rawPagesByLang[lang])
-			if err := s.writeOutput(filepath.Join(lang, feedName), langFeed); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -1526,7 +1275,7 @@ func (s *Site) renderFeed() error {
 			return p, p != nil
 		})
 		for _, feedName := range s.feedFilenames() {
-			secFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, sec.Lang, secPages)
+			secFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, secPages)
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), feedName), secFeed); err != nil {
 				return err
 			}
@@ -1553,16 +1302,7 @@ func (s *Site) feedFilenames() []string {
 	return out
 }
 
-func (s *Site) taxonomyFeedEnabled(name string, lang string) bool {
-	if lang != "" && lang != s.Config.DefaultLanguage {
-		if opts, ok := s.Config.Languages[lang]; ok {
-			for _, tx := range opts.Taxonomies {
-				if tx.Name == name {
-					return tx.Feed
-				}
-			}
-		}
-	}
+func (s *Site) taxonomyFeedEnabled(name string) bool {
 	for _, tx := range s.Config.Taxonomies {
 		if tx.Name == name {
 			return tx.Feed
@@ -1598,7 +1338,7 @@ func slugifyURLSegment(in string) string {
 }
 
 func (s *Site) render404(liveReloadURL string) error {
-	content, err := s.Templates.Render("404.html", map[string]any{"config": s.Config.TemplateView(s.Config.DefaultLanguage)})
+	content, err := s.Templates.Render("404.html", map[string]any{"config": s.Config.TemplateView()})
 	if err != nil {
 		content = "<html><body><h1>404</h1></body></html>"
 	}
@@ -1607,7 +1347,7 @@ func (s *Site) render404(liveReloadURL string) error {
 }
 
 func (s *Site) renderRobots() error {
-	content, err := s.Templates.Render("robots.txt", map[string]any{"config": s.Config.TemplateView(s.Config.DefaultLanguage)})
+	content, err := s.Templates.Render("robots.txt", map[string]any{"config": s.Config.TemplateView()})
 	if err != nil {
 		content = "User-agent: *\nAllow: /\n"
 	}

@@ -47,7 +47,7 @@ func TestBuild_RealZolaFixtures_Optional(t *testing.T) {
 		t.Skip("set RUN_VENDORED_FIXTURES=1 to run heavy vendored fixture builds")
 	}
 
-	for _, name := range []string{"test_site", "test_site_i18n"} {
+	for _, name := range []string{"test_site"} {
 		name := name
 		t.Run(name, func(t *testing.T) {
 			root := filepath.Join("..", "fixtures", "zola", name)

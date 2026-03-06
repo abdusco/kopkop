@@ -68,7 +68,7 @@ func ComputePageSlug(metaSlug string, filePathForSlug string, pathsKeepDates boo
 	return slugifyPath(filePathForSlug), extractedDate
 }
 
-func ComputePagePath(metaPath string, slug string, components []string, fileName string, hasColocatedPath bool, lang string, defaultLang string) string {
+func ComputePagePath(metaPath string, slug string, components []string, fileName string, hasColocatedPath bool) string {
 	if strings.TrimSpace(metaPath) != "" {
 		path := strings.TrimSpace(metaPath)
 		if !strings.HasPrefix(path, "/") {
@@ -92,14 +92,6 @@ func ComputePagePath(metaPath string, slug string, components []string, fileName
 			p = strings.Join(components, "/")
 		} else {
 			p = fmt.Sprintf("%s/%s", strings.Join(components, "/"), slug)
-		}
-	}
-
-	if lang != "" && defaultLang != "" && lang != defaultLang {
-		if p == "" {
-			p = lang
-		} else {
-			p = fmt.Sprintf("%s/%s", lang, p)
 		}
 	}
 

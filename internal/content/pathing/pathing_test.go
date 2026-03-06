@@ -65,8 +65,6 @@ func TestComputePagePath_Table(t *testing.T) {
 		components       []string
 		fileName         string
 		hasColocatedPath bool
-		lang             string
-		defaultLang      string
 		want             string
 	}{
 		{
@@ -78,27 +76,14 @@ func TestComputePagePath_Table(t *testing.T) {
 			name:             "root index without colocated path",
 			fileName:         "index",
 			hasColocatedPath: false,
-			lang:             "en",
-			defaultLang:      "en",
 			want:             "/",
 		},
 		{
-			name:        "page path from components and slug",
-			slug:        "my-post",
-			components:  []string{"blog", "2026"},
-			fileName:    "post",
-			lang:        "en",
-			defaultLang: "en",
-			want:        "/blog/2026/my-post/",
-		},
-		{
-			name:        "non-default language prefixed",
-			slug:        "my-post",
-			components:  []string{"blog"},
-			fileName:    "post",
-			lang:        "fr",
-			defaultLang: "en",
-			want:        "/fr/blog/my-post/",
+			name:       "page path from components and slug",
+			slug:       "my-post",
+			components: []string{"blog", "2026"},
+			fileName:   "post",
+			want:       "/blog/2026/my-post/",
 		},
 	}
 
@@ -106,7 +91,7 @@ func TestComputePagePath_Table(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := ComputePagePath(tc.metaPath, tc.slug, tc.components, tc.fileName, tc.hasColocatedPath, tc.lang, tc.defaultLang)
+			got := ComputePagePath(tc.metaPath, tc.slug, tc.components, tc.fileName, tc.hasColocatedPath)
 			assert.Equal(t, tc.want, got)
 		})
 	}

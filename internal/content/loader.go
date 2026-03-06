@@ -101,7 +101,6 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 
 	attachPagesToSections(lib)
 	attachSubsections(lib)
-	attachTranslations(lib, cfg.DefaultLanguage)
 	buildTaxonomies(lib, cfg)
 	return lib, nil
 }
@@ -132,8 +131,9 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		return nil, err
 	}
 
-	lang := inferLangFromFilename(relPath, cfg.DefaultLanguage)
-	baseName := baseNameForSlug(relPath, lang, cfg.DefaultLanguage)
+	base := filepath.Base(relPath)
+	ext := filepath.Ext(base)
+	baseName := strings.TrimSuffix(base, ext)
 	filePathForSlug := baseName
 	if baseName == "index" {
 		filePathForSlug = filepath.Base(filepath.Dir(relPath))
@@ -144,20 +144,19 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	if baseName == "index" {
 		slug = ""
 	}
-	p := pathing.ComputePagePath(meta.Path, slug, components, strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)), hasColocated, lang, cfg.DefaultLanguage)
+	p := pathing.ComputePagePath(meta.Path, slug, components, strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)), hasColocated)
 	permalink := pathing.MakePermalink(cfg.BaseURL, p)
 
 	page := &Page{
 		SourcePath:    absPath,
 		RelativePath:  relPath,
-		Lang:          lang,
 		Meta:          meta,
 		RawContent:    body,
 		Slug:          slug,
 		Path:          p,
 		Permalink:     permalink,
 		Components:    splitComponents(strings.Trim(p, "/")),
-		ParentSection: parentSectionPath(relPath, lang, cfg.DefaultLanguage),
+		ParentSection: parentSectionPath(relPath),
 	}
 
 	if t, ok := parseDateAny(meta.Date); ok {
@@ -191,7 +190,6 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 		return nil, err
 	}
 
-	lang := inferLangFromFilename(relPath, cfg.DefaultLanguage)
 	dir := filepath.Dir(relPath)
 	if dir == "." {
 		dir = ""
@@ -200,27 +198,18 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 	if dir != "" {
 		p = "/" + filepath.ToSlash(dir) + "/"
 	}
-	if lang != cfg.DefaultLanguage {
-		p = "/" + lang + "/" + strings.TrimPrefix(p, "/")
-		p = strings.ReplaceAll(p, "//", "/")
-		if !strings.HasSuffix(p, "/") {
-			p += "/"
-		}
-	}
 	permalink := pathing.MakePermalink(cfg.BaseURL, p)
 
 	return &Section{
-		SourcePath:   absPath,
+		SourcePath:  absPath,
 		RelativePath: relPath,
-		Lang:         lang,
-		Meta:         meta,
-		RawContent:   body,
-		Path:         p,
-		Permalink:    permalink,
-		Components:   splitComponents(strings.Trim(p, "/")),
-		Pages:        []string{},
-		Subsections:  []string{},
-		Translations: []string{},
+		Meta:        meta,
+		RawContent:  body,
+		Path:        p,
+		Permalink:   permalink,
+		Components:  splitComponents(strings.Trim(p, "/")),
+		Pages:       []string{},
+		Subsections: []string{},
 	}, nil
 }
 
@@ -235,7 +224,7 @@ func attachPagesToSections(lib *Library) {
 			continue
 		}
 		for parent := p.ParentSection; ; {
-			next := parentSectionFromSectionPath(parent, sectionLangSuffix(parent))
+			next := parentSectionFromSectionPath(parent)
 			if next == parent {
 				break
 			}
@@ -251,7 +240,7 @@ func attachPagesToSections(lib *Library) {
 		if !sec.Meta.Transparent {
 			continue
 		}
-		parent := parentSectionFromSectionPath(sec.RelativePath, sectionLangSuffix(sec.RelativePath))
+		parent := parentSectionFromSectionPath(sec.RelativePath)
 		if target, ok := lib.Sections[parent]; ok {
 			target.Pages = append(target.Pages, sec.Pages...)
 		}
@@ -361,12 +350,9 @@ func filterDraftSections(lib *Library) {
 	}
 }
 
-func parentSectionFromSectionPath(sectionRelPath string, lang string) string {
+func parentSectionFromSectionPath(sectionRelPath string) string {
 	dir := filepath.ToSlash(filepath.Dir(sectionRelPath))
 	if dir == "." || dir == "" {
-		if lang != "" {
-			return "_index." + lang + ".md"
-		}
 		return "_index.md"
 	}
 	parentDir := filepath.ToSlash(filepath.Dir(dir))
@@ -374,24 +360,9 @@ func parentSectionFromSectionPath(sectionRelPath string, lang string) string {
 		parentDir = ""
 	}
 	if parentDir == "" {
-		if lang != "" {
-			return "_index." + lang + ".md"
-		}
 		return "_index.md"
 	}
-	if lang != "" {
-		return fmt.Sprintf("%s/_index.%s.md", parentDir, lang)
-	}
 	return fmt.Sprintf("%s/_index.md", parentDir)
-}
-
-func sectionLangSuffix(sectionRelPath string) string {
-	base := filepath.Base(sectionRelPath)
-	parts := strings.Split(base, ".")
-	if len(parts) >= 3 {
-		return parts[len(parts)-2]
-	}
-	return ""
 }
 
 func attachSubsections(lib *Library) {
@@ -441,90 +412,12 @@ func attachSubsections(lib *Library) {
 	}
 }
 
-func attachTranslations(lib *Library, defaultLang string) {
-	groups := map[string][]string{}
-	for rel, p := range lib.Pages {
-		groups[translationKey(rel, p.Lang, defaultLang)] = append(groups[translationKey(rel, p.Lang, defaultLang)], rel)
-	}
-	for _, paths := range groups {
-		sort.SliceStable(paths, func(i, j int) bool {
-			li := lib.Pages[paths[i]].Lang
-			lj := lib.Pages[paths[j]].Lang
-			if li == defaultLang && lj != defaultLang {
-				return true
-			}
-			if li != defaultLang && lj == defaultLang {
-				return false
-			}
-			if li != lj {
-				return li < lj
-			}
-			return paths[i] < paths[j]
-		})
-		for _, rel := range paths {
-			all := make([]string, 0, len(paths))
-			all = append(all, paths...)
-			lib.Pages[rel].Translations = all
-		}
-	}
-
-	sectionGroups := map[string][]string{}
-	for rel, sec := range lib.Sections {
-		sectionGroups[translationKey(rel, sec.Lang, defaultLang)] = append(sectionGroups[translationKey(rel, sec.Lang, defaultLang)], rel)
-	}
-	for _, paths := range sectionGroups {
-		sort.Strings(paths)
-		for _, rel := range paths {
-			all := make([]string, 0, len(paths))
-			all = append(all, paths...)
-			lib.Sections[rel].Translations = all
-		}
-	}
-}
-
-func translationKey(rel string, lang string, defaultLang string) string {
-	base := filepath.Base(rel)
-	dir := filepath.ToSlash(filepath.Dir(rel))
-	if dir == "." {
-		dir = ""
-	}
-	name := strings.TrimSuffix(base, filepath.Ext(base))
-	if lang != "" && lang != defaultLang {
-		suffix := "." + lang
-		name = strings.TrimSuffix(name, suffix)
-	}
-	if dir == "" {
-		return name
-	}
-	return dir + "/" + name
-}
-
 func countSegments(p string) int {
 	p = strings.Trim(p, "/")
 	if p == "" {
 		return 0
 	}
 	return len(strings.Split(p, "/"))
-}
-
-func inferLangFromFilename(relPath string, def string) string {
-	base := filepath.Base(relPath)
-	parts := strings.Split(base, ".")
-	if len(parts) >= 3 {
-		return parts[len(parts)-2]
-	}
-	return def
-}
-
-func baseNameForSlug(relPath string, lang string, defaultLang string) string {
-	base := filepath.Base(relPath)
-	ext := filepath.Ext(base)
-	name := strings.TrimSuffix(base, ext)
-	if lang != "" && lang != defaultLang {
-		suffix := "." + lang
-		name = strings.TrimSuffix(name, suffix)
-	}
-	return name
 }
 
 func parseDateAny(v any) (time.Time, bool) {
@@ -568,16 +461,10 @@ func splitComponents(p string) []string {
 	return out
 }
 
-func parentSectionPath(rel string, lang string, defaultLang string) string {
+func parentSectionPath(rel string) string {
 	dir := filepath.ToSlash(filepath.Dir(rel))
 	if dir == "." || dir == "" {
-		if lang != "" && lang != defaultLang {
-			return "_index." + lang + ".md"
-		}
 		return "_index.md"
-	}
-	if lang != "" && lang != defaultLang {
-		return fmt.Sprintf("%s/_index.%s.md", dir, lang)
 	}
 	return fmt.Sprintf("%s/_index.md", dir)
 }

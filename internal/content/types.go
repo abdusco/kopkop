@@ -44,7 +44,6 @@ type SectionFrontMatter struct {
 type Page struct {
 	SourcePath    string
 	RelativePath  string
-	Lang          string
 	Meta          PageFrontMatter
 	RawContent    string
 	Content       string
@@ -60,13 +59,11 @@ type Page struct {
 	Date          *time.Time
 	Updated       *time.Time
 	ParentSection string
-	Translations  []string
 }
 
 type Section struct {
 	SourcePath   string
 	RelativePath string
-	Lang         string
 	Meta         SectionFrontMatter
 	RawContent   string
 	Content      string
@@ -75,7 +72,6 @@ type Section struct {
 	Components   []string
 	Pages        []string
 	Subsections  []string
-	Translations []string
 }
 
 type Heading struct {

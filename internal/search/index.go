@@ -2,7 +2,6 @@ package search
 
 import (
 	"encoding/json"
-	"fmt"
 	stdhtml "html"
 	"os"
 	"path/filepath"
@@ -19,33 +18,24 @@ type Entry struct {
 	Permalink string `json:"permalink"`
 	Summary   string `json:"summary"`
 	Content   string `json:"content"`
-	Lang      string `json:"lang"`
 }
 
 func BuildIndex(lib *content.Library, outputPath string, filename string) error {
-	return BuildIndexForLanguages(lib, outputPath, filename, nil)
-}
-
-func BuildIndexForLanguages(lib *content.Library, outputPath string, filename string, enabledLangs map[string]bool) error {
-	byLang := map[string][]Entry{}
+	var entries []Entry
 	permalinkSeen := map[string]struct{}{}
 	paths := lo.Keys(lib.Pages)
 	sort.Strings(paths)
 	for _, p := range paths {
 		pg := lib.Pages[p]
-		if len(enabledLangs) > 0 && !enabledLangs[pg.Lang] {
-			continue
-		}
 		summary := ""
 		if pg.Summary != nil {
 			summary = *pg.Summary
 		}
-		byLang[pg.Lang] = append(byLang[pg.Lang], Entry{
+		entries = append(entries, Entry{
 			Title:     pg.Meta.Title,
 			Permalink: pg.Permalink,
 			Summary:   summary,
 			Content:   stripTags(pg.Content),
-			Lang:      pg.Lang,
 		})
 		permalinkSeen[pg.Permalink] = struct{}{}
 	}
@@ -54,84 +44,26 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 	sort.Strings(sectionPaths)
 	for _, p := range sectionPaths {
 		sec := lib.Sections[p]
-		if len(enabledLangs) > 0 && !enabledLangs[sec.Lang] {
-			continue
-		}
 		if _, exists := permalinkSeen[sec.Permalink]; exists {
 			continue
 		}
-		byLang[sec.Lang] = append(byLang[sec.Lang], Entry{
+		entries = append(entries, Entry{
 			Title:     sec.Meta.Title,
 			Permalink: sec.Permalink,
-			Summary:   "",
 			Content:   stripTags(sec.Content),
-			Lang:      sec.Lang,
 		})
 		permalinkSeen[sec.Permalink] = struct{}{}
 	}
 
-	if len(enabledLangs) > 0 {
-		defaultRoot := lib.Sections["_index.md"]
-		if defaultRoot != nil {
-			defaultLang := defaultRoot.Lang
-			base := strings.TrimRight(defaultRoot.Permalink, "/")
-			langs := lo.Keys(enabledLangs)
-			sort.Strings(langs)
-			for _, lang := range langs {
-				if !enabledLangs[lang] || lang == defaultLang {
-					continue
-				}
-				perm := base + "/" + lang + "/"
-				if _, exists := permalinkSeen[perm]; exists {
-					continue
-				}
-				byLang[lang] = append(byLang[lang], Entry{
-					Title:     "",
-					Permalink: perm,
-					Summary:   "",
-					Content:   "",
-					Lang:      lang,
-				})
-				permalinkSeen[perm] = struct{}{}
-			}
-		}
-	}
-
-	if len(byLang) <= 1 {
-		entries := lo.Flatten(lo.Values(byLang))
-		b, err := json.Marshal(entries)
-		if err != nil {
-			return err
-		}
-		dst := filepath.Join(outputPath, filename)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(dst, b, 0o644)
-	}
-
-	langs := lo.Keys(byLang)
-	sort.Strings(langs)
-	for _, lang := range langs {
-		b, err := json.Marshal(byLang[lang])
-		if err != nil {
-			return err
-		}
-		js := fmt.Sprintf("window.searchIndex = window.searchIndex || {};\nwindow.searchIndex[%q] = %s;\n", lang, string(b))
-		dst := filepath.Join(outputPath, "search_index."+lang+".js")
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(dst, []byte(js), 0o644); err != nil {
-			return err
-		}
-	}
-
-	elasticlunrPath := filepath.Join(outputPath, "elasticlunr.min.js")
-	if err := os.WriteFile(elasticlunrPath, []byte("window.elasticlunr = window.elasticlunr || {};\n"), 0o644); err != nil {
+	b, err := json.Marshal(entries)
+	if err != nil {
 		return err
 	}
-	return nil
+	dst := filepath.Join(outputPath, filename)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o644)
 }
 
 func stripTags(s string) string {

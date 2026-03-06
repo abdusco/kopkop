@@ -92,25 +92,16 @@ type TaxonomyConfig struct {
 	Feed bool   `toml:"feed"`
 }
 
-type LanguageOptions struct {
-	Title            string           `toml:"title"`
-	BuildSearchIndex bool             `toml:"build_search_index"`
-	GenerateFeeds    bool             `toml:"generate_feeds"`
-	Taxonomies       []TaxonomyConfig `toml:"taxonomies"`
-}
-
 type Config struct {
-	BaseURL             string                     `toml:"base_url"`
-	Title               string                     `toml:"title"`
-	Description         string                     `toml:"description"`
-	Author              string                     `toml:"author"`
-	Extra               map[string]any             `toml:"extra"`
-	Theme               string                     `toml:"theme"`
-	OutputDir           string                     `toml:"output_dir"`
-	DefaultLanguage     string                     `toml:"default_language"`
-	LinkStrategy        string                     `toml:"link_strategy"`
-	Languages           map[string]LanguageOptions `toml:"languages"`
-	BuildSearchIndex    bool                       `toml:"build_search_index"`
+	BaseURL             string         `toml:"base_url"`
+	Title               string         `toml:"title"`
+	Description         string         `toml:"description"`
+	Author              string         `toml:"author"`
+	Extra               map[string]any `toml:"extra"`
+	Theme               string         `toml:"theme"`
+	OutputDir           string         `toml:"output_dir"`
+	LinkStrategy        string         `toml:"link_strategy"`
+	BuildSearchIndex    bool           `toml:"build_search_index"`
 	GenerateFeeds       bool                       `toml:"generate_feeds"`
 	FeedFilenames       []string                   `toml:"feed_filenames"`
 	GenerateSitemap     bool                       `toml:"generate_sitemap"`
@@ -128,10 +119,9 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		BaseURL:           "http://127.0.0.1:1111",
-		OutputDir:         "public",
-		DefaultLanguage:   "en",
-		LinkStrategy:      "absolute",
+		BaseURL:      "http://127.0.0.1:1111",
+		OutputDir:    "public",
+		LinkStrategy: "absolute",
 		BuildSearchIndex:  false,
 		GenerateFeeds:     false,
 		FeedFilenames:     []string{"atom.xml"},
@@ -155,7 +145,6 @@ func Default() Config {
 			CacheFile:          ".kopkop-linkcheck-cache.json",
 			UseCache:           true,
 		},
-		Languages:      map[string]LanguageOptions{},
 		Extra:          map[string]any{},
 		IgnoredContent: []string{},
 	}
@@ -212,9 +201,6 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.OutputDir) == "" {
 		return errors.New("output_dir must not be empty")
 	}
-	if strings.TrimSpace(c.DefaultLanguage) == "" {
-		return errors.New("default_language must not be empty")
-	}
 	if c.LinkStrategy == "" {
 		c.LinkStrategy = "absolute"
 	}
@@ -234,13 +220,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func (c Config) TemplateView(lang string) map[string]any {
-	title := c.Title
-	if opts, ok := c.Languages[lang]; ok {
-		if v := strings.TrimSpace(opts.Title); v != "" {
-			title = v
-		}
-	}
+func (c Config) TemplateView() map[string]any {
 	linkStrategy := strings.TrimSpace(c.LinkStrategy)
 	if linkStrategy == "" {
 		linkStrategy = "absolute"
@@ -248,10 +228,9 @@ func (c Config) TemplateView(lang string) map[string]any {
 
 	return map[string]any{
 		"base_url":           c.BaseURL,
-		"title":              title,
+		"title":              c.Title,
 		"description":        c.Description,
 		"author":             c.Author,
-		"default_language":   c.DefaultLanguage,
 		"output_dir":         c.OutputDir,
 		"link_strategy":      linkStrategy,
 		"build_search_index": c.BuildSearchIndex,
@@ -267,17 +246,6 @@ func (c Config) MakePermalink(p string) string {
 		p = "/" + p
 	}
 	return base + p
-}
-
-func (c Config) OtherLanguages() map[string]LanguageOptions {
-	out := map[string]LanguageOptions{}
-	for k, v := range c.Languages {
-		if k == c.DefaultLanguage {
-			continue
-		}
-		out[k] = v
-	}
-	return out
 }
 
 func DiscoverConfigPath(startDir string, configArg string) (rootDir string, configPath string, err error) {
