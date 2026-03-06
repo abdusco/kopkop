@@ -7,13 +7,17 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -28,6 +32,101 @@ import (
 
 var namedEndTagRe = regexp.MustCompile(`\{%(\s*end(?:macro|block))\s+[a-zA-Z0-9_]+\s*%\}`)
 var teraMacroCallRe = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)::([a-zA-Z_][a-zA-Z0-9_]*)\(`)
+
+type urlCacheEntry struct {
+	body        []byte
+	contentType string
+}
+
+type responseCache struct{ m sync.Map }
+
+func (c *responseCache) Get(key string) (urlCacheEntry, bool) {
+	v, ok := c.m.Load(key)
+	if !ok {
+		return urlCacheEntry{}, false
+	}
+	return v.(urlCacheEntry), true
+}
+
+func (c *responseCache) Set(key string, entry urlCacheEntry) {
+	c.m.Store(key, entry)
+}
+
+func contentTypeToFormat(ct string) string {
+	ct = strings.SplitN(ct, ";", 2)[0]
+	ct = strings.TrimSpace(ct)
+	switch ct {
+	case "application/json":
+		return "json"
+	case "application/toml", "text/x-toml":
+		return "toml"
+	case "application/yaml", "text/yaml":
+		return "yaml"
+	case "text/csv":
+		return "csv"
+	default:
+		return ""
+	}
+}
+
+var loadURLClient = func() *http.Client {
+	timeout := 30 * time.Second
+	if v := os.Getenv("LOAD_URL_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			timeout = d
+		}
+	}
+	return &http.Client{Timeout: timeout}
+}()
+
+func parseData(b []byte, format string) (value.Value, error) {
+	switch format {
+	case "json":
+		var parsed any
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			return value.Undefined(), fmt.Errorf("JSON parse error: %w", err)
+		}
+		return value.FromAny(parsed), nil
+	case "toml":
+		var parsed any
+		if err := toml.Unmarshal(b, &parsed); err != nil {
+			return value.Undefined(), fmt.Errorf("TOML parse error: %w", err)
+		}
+		return value.FromAny(parsed), nil
+	case "yaml", "yml":
+		var parsed any
+		if err := yaml.Unmarshal(b, &parsed); err != nil {
+			return value.Undefined(), fmt.Errorf("YAML parse error: %w", err)
+		}
+		return value.FromAny(parsed), nil
+	case "csv":
+		r := csv.NewReader(strings.NewReader(string(b)))
+		records, err := r.ReadAll()
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("CSV parse error: %w", err)
+		}
+		headers := []value.Value{}
+		dataRecords := []value.Value{}
+		if len(records) > 0 {
+			for _, h := range records[0] {
+				headers = append(headers, value.FromString(h))
+			}
+			for _, row := range records[1:] {
+				cells := make([]value.Value, len(row))
+				for i, cell := range row {
+					cells[i] = value.FromString(cell)
+				}
+				dataRecords = append(dataRecords, value.FromSlice(cells))
+			}
+		}
+		return value.FromMap(map[string]value.Value{
+			"headers": value.FromSlice(headers),
+			"records": value.FromSlice(dataRecords),
+		}), nil
+	default:
+		return value.FromString(string(b)), nil
+	}
+}
 
 type Manager struct {
 	Engine    *Engine
@@ -188,15 +287,10 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputPath string) {
 	img := imageproc.New(basePath, outputPath)
 	env.AddFunction("now", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = args
-		_ = kwargs
 		return value.FromString(time.Now().UTC().Format(time.RFC3339)), nil
 	})
 
 	env.AddFunction("get_env", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = args
 		nameVal, ok := kwargs["name"]
 		if !ok {
 			return value.Undefined(), fmt.Errorf("get_env expects name=...")
@@ -323,7 +417,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("get_taxonomy", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = args
 		kindVal, ok := kwargs["kind"]
 		if !ok {
 			return value.Undefined(), fmt.Errorf("get_taxonomy expects kind=...")
@@ -342,7 +435,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("get_taxonomy_term", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = args
 		kindVal, kOK := kwargs["kind"]
 		termVal, tOK := kwargs["term"]
 		if !kOK || !tOK {
@@ -374,8 +466,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("get_taxonomy_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = args
 		kindVal, kOK := kwargs["kind"]
 		termVal, tOK := kwargs["name"]
 		if !tOK {
@@ -391,7 +481,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("load_data", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
 		if len(args) == 0 {
 			return value.Undefined(), fmt.Errorf("load_data expects a file path")
 		}
@@ -412,56 +501,115 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 			}
 		}
 
-		switch format {
-		case "json":
-			var parsed any
-			if err := json.Unmarshal(b, &parsed); err != nil {
-				return value.Undefined(), fmt.Errorf("load_data: JSON parse error: %w", err)
-			}
-			return value.FromAny(parsed), nil
-		case "toml":
-			var parsed any
-			if err := toml.Unmarshal(b, &parsed); err != nil {
-				return value.Undefined(), fmt.Errorf("load_data: TOML parse error: %w", err)
-			}
-			return value.FromAny(parsed), nil
-		case "yaml", "yml":
-			var parsed any
-			if err := yaml.Unmarshal(b, &parsed); err != nil {
-				return value.Undefined(), fmt.Errorf("load_data: YAML parse error: %w", err)
-			}
-			return value.FromAny(parsed), nil
-		case "csv":
-			r := csv.NewReader(strings.NewReader(string(b)))
-			records, err := r.ReadAll()
-			if err != nil {
-				return value.Undefined(), fmt.Errorf("load_data: CSV parse error: %w", err)
-			}
-			headers := []value.Value{}
-			dataRecords := []value.Value{}
-			if len(records) > 0 {
-				for _, h := range records[0] {
-					headers = append(headers, value.FromString(h))
-				}
-				for _, row := range records[1:] {
-					cells := make([]value.Value, len(row))
-					for i, cell := range row {
-						cells[i] = value.FromString(cell)
-					}
-					dataRecords = append(dataRecords, value.FromSlice(cells))
-				}
-			}
-			return value.FromMap(map[string]value.Value{
-				"headers": value.FromSlice(headers),
-				"records": value.FromSlice(dataRecords),
-			}), nil
-		default:
-			return value.FromString(string(b)), nil
+		return parseData(b, format)
+	})
+
+	urlCache := &responseCache{}
+
+	env.AddFunction("load_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		rawURL, ok := kwargs["url"]
+		if !ok {
+			return value.Undefined(), fmt.Errorf("load_url requires a url kwarg")
 		}
+		urlStr, ok := rawURL.AsString()
+		if !ok {
+			return value.Undefined(), fmt.Errorf("load_url url must be a string")
+		}
+
+		method := http.MethodGet
+		if v, ok := kwargs["method"]; ok {
+			if s, ok := v.AsString(); ok {
+				method = strings.ToUpper(s)
+			}
+		}
+
+		bodyStr := ""
+		if v, ok := kwargs["body"]; ok {
+			if s, ok := v.AsString(); ok {
+				bodyStr = s
+			}
+		}
+
+		// format kwarg is caller-side; resolve it before cache lookup
+		format := ""
+		if fmtVal, ok := kwargs["format"]; ok {
+			if s, ok := fmtVal.AsString(); ok {
+				format = s
+			}
+		}
+
+		cacheKey := method + " " + urlStr + "\n" + bodyStr
+		if entry, ok := urlCache.Get(cacheKey); ok {
+			if format == "" {
+				format = contentTypeToFormat(entry.contentType)
+			}
+			if format == "" {
+				if u, err := url.Parse(urlStr); err == nil {
+					format = strings.TrimPrefix(strings.ToLower(filepath.Ext(u.Path)), ".")
+				}
+			}
+			return parseData(entry.body, format)
+		}
+
+		var bodyReader io.Reader
+		if bodyStr != "" {
+			bodyReader = strings.NewReader(bodyStr)
+		}
+
+		req, err := http.NewRequest(method, urlStr, bodyReader)
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("load_url: invalid request: %w", err)
+		}
+		req.Header.Set("User-Agent", "kopkop")
+
+		if v, ok := kwargs["headers"]; ok {
+			if hdrs, ok := v.AsSlice(); ok {
+				for _, hdr := range hdrs {
+					s, ok := hdr.AsString()
+					if !ok {
+						continue
+					}
+					k, v, found := strings.Cut(s, ":")
+					if !found {
+						continue
+					}
+					req.Header.Set(strings.TrimSpace(k), strings.TrimSpace(v))
+				}
+			}
+		}
+
+		resp, err := loadURLClient.Do(req)
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("load_url: request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return value.Undefined(), fmt.Errorf("load_url: HTTP %d for %s", resp.StatusCode, urlStr)
+		}
+
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("load_url: reading response: %w", err)
+		}
+
+		respContentType := resp.Header.Get("Content-Type")
+		urlCache.Set(cacheKey, urlCacheEntry{body: b, contentType: respContentType})
+
+		// format detection: kwarg > URL ext > Content-Type
+		if format == "" {
+			if u, err := url.Parse(urlStr); err == nil {
+				format = strings.TrimPrefix(strings.ToLower(filepath.Ext(u.Path)), ".")
+			}
+		}
+		if format == "" {
+			format = contentTypeToFormat(respContentType)
+		}
+
+		return parseData(b, format)
 	})
 
 	env.AddFunction("get_hash", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
 		base64Out := false
 		if b, ok := kwargs["base64"]; ok {
 			if bv, ok := b.AsBool(); ok {
@@ -504,8 +652,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("get_image_metadata", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = kwargs
 		if len(args) == 0 {
 			return value.Undefined(), fmt.Errorf("get_image_metadata expects image path")
 		}
@@ -525,8 +671,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFunction("resize_image", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = kwargs
 		if len(args) < 3 {
 			return value.Undefined(), fmt.Errorf("resize_image expects path, width, height")
 		}
@@ -550,9 +694,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("base64_encode", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = args
-		_ = kwargs
 		s, ok := val.AsString()
 		if !ok {
 			return value.Undefined(), fmt.Errorf("base64_encode expects string")
@@ -561,9 +702,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("base64_decode", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = args
-		_ = kwargs
 		s, ok := val.AsString()
 		if !ok {
 			return value.Undefined(), fmt.Errorf("base64_decode expects string")
@@ -576,8 +714,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("regex_replace", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = kwargs
 		s, ok := val.AsString()
 		if !ok {
 			return value.Undefined(), fmt.Errorf("regex_replace expects string input")
@@ -601,9 +737,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("markdown", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = args
-		_ = kwargs
 		s, ok := val.AsString()
 		if !ok {
 			return value.Undefined(), fmt.Errorf("markdown filter expects string")
@@ -616,8 +749,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("num_format", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-		_ = kwargs
 		f, ok := val.AsFloat()
 		if !ok {
 			if i, ok := val.AsInt(); ok {
@@ -638,8 +769,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("default", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
-
 		fallback, hasFallback := kwargs["value"]
 		if !hasFallback && len(args) > 0 {
 			fallback = args[0]
@@ -672,7 +801,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("concat", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
 		other, ok := kwargs["with"]
 		if !ok && len(args) > 0 {
 			other = args[0]
@@ -706,7 +834,6 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 	})
 
 	env.AddFilter("date", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		_ = state
 		format := "%Y-%m-%d"
 		if v, ok := kwargs["format"]; ok {
 			if s, ok := v.AsString(); ok && s != "" {

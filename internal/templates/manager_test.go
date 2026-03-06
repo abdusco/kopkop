@@ -1,11 +1,16 @@
 package templates
 
 import (
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -153,6 +158,137 @@ func TestLoadData(t *testing.T) {
 			assert.Equal(t, tc.want, out)
 		})
 	}
+}
+
+func TestLoadURL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		handler  http.HandlerFunc
+		template func(serverURL string) string
+		want     string
+		wantErr  bool
+	}{
+		{
+			name: "json via Content-Type header",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"name":"Alice"}`))
+			},
+			template: func(u string) string {
+				return `{% set d = load_url(url="` + u + `") %}{{ d.name }}`
+			},
+			want: "Alice",
+		},
+		{
+			name: "yaml via URL extension",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte("name: Bob\n"))
+			},
+			template: func(u string) string {
+				return `{% set d = load_url(url="` + u + `/data.yaml") %}{{ d.name }}`
+			},
+			want: "Bob",
+		},
+		{
+			name: "format kwarg overrides Content-Type",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"x":1}`))
+			},
+			template: func(u string) string {
+				return `{{ load_url(url="` + u + `", format="plain") }}`
+			},
+			want: `{"x":1}`,
+		},
+		{
+			name: "custom header forwarded",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				b, _ := json.Marshal(map[string]string{"got": r.Header.Get("X-Test")})
+				w.Write(b)
+			},
+			template: func(u string) string {
+				return `{% set d = load_url(url="` + u + `", headers=["X-Test: hello"]) %}{{ d.got }}`
+			},
+			want: "hello",
+		},
+		{
+			name: "POST with body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				b, _ := json.Marshal(map[string]string{"received": string(body)})
+				w.Write(b)
+			},
+			template: func(u string) string {
+				return `{% set d = load_url(url="` + u + `", method="POST", body="hello") %}{{ d.received }}`
+			},
+			want: "hello",
+		},
+		{
+			name: "non-200 returns error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "not found", http.StatusNotFound)
+			},
+			template: func(u string) string {
+				return `{{ load_url(url="` + u + `") }}`
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+
+			root := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+			tpl := tc.template(srv.URL)
+			require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "t.txt"), []byte(tpl), 0o644))
+
+			mgr, err := LoadManager(root, "")
+			require.NoError(t, err)
+
+			out, err := mgr.Render("t.txt", map[string]any{})
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, out)
+			}
+		})
+	}
+}
+
+func TestLoadURL_Cache(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"n":1}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	// Call load_url twice with the same URL in one template render
+	tpl := `{{ load_url(url="` + srv.URL + `").n }}|{{ load_url(url="` + srv.URL + `").n }}`
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "t.txt"), []byte(tpl), 0o644))
+
+	mgr, err := LoadManager(root, "")
+	require.NoError(t, err)
+
+	out, err := mgr.Render("t.txt", map[string]any{})
+	require.NoError(t, err)
+	assert.Equal(t, "1|1", out)
+	assert.Equal(t, int32(1), hits.Load(), "server should be hit only once due to caching")
 }
 
 func TestLookupHelpers(t *testing.T) {

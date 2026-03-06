@@ -345,6 +345,7 @@ When `paginate_by` is set, `paginator` contains: `current_index`, `number_pagers
 | `now()` | Current UTC time as RFC3339 string. |
 | `get_env(name=..., default=...)` | Read an environment variable. |
 | `load_data(path, format=...)` | Load a file relative to the site root. JSON, TOML, YAML, and CSV files are parsed into structured data; everything else is returned as a plain string. The optional `format` kwarg (`"json"`, `"toml"`, `"yaml"`, `"csv"`, `"plain"`) overrides extension-based detection. CSV files return `{headers, records}`. |
+| `load_url(url=..., format=..., method="GET", headers=[...], body=...)` | Fetch a URL and return parsed data. Format is auto-detected from the URL extension or `Content-Type` response header, or overridden with `format`. `headers` is a list of `"Key: Value"` strings. `body` sends a request body (useful with `method="POST"`). Responses are cached in memory for the duration of the build. Timeout defaults to 30s; override with `LOAD_URL_TIMEOUT` env var (e.g. `"10s"`). |
 | `get_hash(path, base64=false)` | SHA-384 hash of a file or string. |
 | `get_image_metadata(path)` | Returns `{width, height, format}` for an image. |
 | `resize_image(path, width, height)` | Resize an image and return its URL. |
