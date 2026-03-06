@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/abdusco/kopkop/internal/content"
+	"github.com/samber/lo"
 	"golang.org/x/net/html"
 )
 
@@ -28,10 +29,7 @@ func BuildIndex(lib *content.Library, outputPath string, filename string) error 
 func BuildIndexForLanguages(lib *content.Library, outputPath string, filename string, enabledLangs map[string]bool) error {
 	byLang := map[string][]Entry{}
 	permalinkSeen := map[string]struct{}{}
-	paths := make([]string, 0, len(lib.Pages))
-	for p := range lib.Pages {
-		paths = append(paths, p)
-	}
+	paths := lo.Keys(lib.Pages)
 	sort.Strings(paths)
 	for _, p := range paths {
 		pg := lib.Pages[p]
@@ -52,10 +50,7 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 		permalinkSeen[pg.Permalink] = struct{}{}
 	}
 
-	sectionPaths := make([]string, 0, len(lib.Sections))
-	for p := range lib.Sections {
-		sectionPaths = append(sectionPaths, p)
-	}
+	sectionPaths := lo.Keys(lib.Sections)
 	sort.Strings(sectionPaths)
 	for _, p := range sectionPaths {
 		sec := lib.Sections[p]
@@ -80,10 +75,7 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 		if defaultRoot != nil {
 			defaultLang := defaultRoot.Lang
 			base := strings.TrimRight(defaultRoot.Permalink, "/")
-			langs := make([]string, 0, len(enabledLangs))
-			for lang := range enabledLangs {
-				langs = append(langs, lang)
-			}
+			langs := lo.Keys(enabledLangs)
 			sort.Strings(langs)
 			for _, lang := range langs {
 				if !enabledLangs[lang] || lang == defaultLang {
@@ -106,10 +98,7 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 	}
 
 	if len(byLang) <= 1 {
-		entries := make([]Entry, 0, len(lib.Pages))
-		for _, entry := range byLang {
-			entries = append(entries, entry...)
-		}
+		entries := lo.Flatten(lo.Values(byLang))
 		b, err := json.Marshal(entries)
 		if err != nil {
 			return err
@@ -121,10 +110,7 @@ func BuildIndexForLanguages(lib *content.Library, outputPath string, filename st
 		return os.WriteFile(dst, b, 0o644)
 	}
 
-	langs := make([]string, 0, len(byLang))
-	for lang := range byLang {
-		langs = append(langs, lang)
-	}
+	langs := lo.Keys(byLang)
 	sort.Strings(langs)
 	for _, lang := range langs {
 		b, err := json.Marshal(byLang[lang])

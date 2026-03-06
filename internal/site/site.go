@@ -22,6 +22,7 @@ import (
 	"github.com/abdusco/kopkop/internal/markdown/shortcode"
 	"github.com/abdusco/kopkop/internal/search"
 	"github.com/abdusco/kopkop/internal/templates"
+	"github.com/samber/lo"
 )
 
 type BuildMode int
@@ -191,10 +192,7 @@ type pageRenderArtifact struct {
 
 func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 	defs := s.Templates.ShortcodeDefinitions()
-	paths := make([]string, 0, len(s.Library.Pages))
-	for p := range s.Library.Pages {
-		paths = append(paths, p)
-	}
+	paths := lo.Keys(s.Library.Pages)
 	sort.Strings(paths)
 	for _, rel := range paths {
 		pg := s.Library.Pages[rel]
@@ -205,15 +203,14 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 		pg.Content = rendered.Body
 		pg.Summary = rendered.Summary
 		pg.ExternalLinks = rendered.ExternalLinks
-		pg.InternalLinks = make([]content.InternalLink, 0, len(rendered.InternalLinks))
-		for _, il := range rendered.InternalLinks {
-			pg.InternalLinks = append(pg.InternalLinks, content.InternalLink{Path: il.Path, Anchor: il.Anchor})
-		}
-		pg.TOC = make([]content.Heading, 0, len(rendered.TOC))
-		for _, h := range rendered.TOC {
-			pg.TOC = append(pg.TOC, content.Heading{ID: h.ID, Level: h.Level, Title: h.Title})
-		}
+		pg.InternalLinks = lo.Map(rendered.InternalLinks, func(il markdown.InternalLink, _ int) content.InternalLink {
+			return content.InternalLink{Path: il.Path, Anchor: il.Anchor}
+		})
+		pg.TOC = lo.Map(rendered.TOC, func(h markdown.Heading, _ int) content.Heading {
+			return content.Heading{ID: h.ID, Level: h.Level, Title: h.Title}
+		})
 	}
+	// TODO: use conc/pool
 	if concurrency <= 0 {
 		concurrency = 1
 	}
@@ -409,7 +406,7 @@ func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]
 		}
 	}
 	if isRootSectionPath(sec.RelativePath) {
-		langs := append([]string{s.Config.DefaultLanguage}, mapKeys(s.Config.Languages)...)
+		langs := append([]string{s.Config.DefaultLanguage}, lo.Keys(s.Config.Languages)...)
 		all := make([]map[string]any, 0, len(langs))
 		for _, lang := range langs {
 			if entry, ok := transByLang[lang]; ok {
@@ -462,15 +459,13 @@ func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]
 }
 
 func (s *Site) tocView(toc []content.Heading) []map[string]any {
-	out := make([]map[string]any, 0, len(toc))
-	for _, h := range toc {
-		out = append(out, map[string]any{
+	return lo.Map(toc, func(h content.Heading, _ int) map[string]any {
+		return map[string]any{
 			"id":    h.ID,
 			"title": h.Title,
 			"level": h.Level,
-		})
-	}
-	return out
+		}
+	})
 }
 
 func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[string]any) {
@@ -565,10 +560,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 }
 
 func (s *Site) renderSections(liveReloadURL string) error {
-	paths := make([]string, 0, len(s.Library.Sections))
-	for p := range s.Library.Sections {
-		paths = append(paths, p)
-	}
+	paths := lo.Keys(s.Library.Sections)
 	sort.Strings(paths)
 	for _, rel := range paths {
 		sec := s.Library.Sections[rel]
@@ -695,7 +687,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			}
 			ctx := s.baseTemplateContext(lang)
 			translations := make([]map[string]any, 0)
-			for _, tLang := range append([]string{s.Config.DefaultLanguage}, mapKeys(s.Config.Languages)...) {
+			for _, tLang := range append([]string{s.Config.DefaultLanguage}, lo.Keys(s.Config.Languages)...) {
 				tRel := "_index.md"
 				if tLang != s.Config.DefaultLanguage {
 					tRel = "_index." + tLang + ".md"
@@ -915,11 +907,9 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 		// preserve content loader order for sections without explicit sorting
 	}
 
-	pages := make([]map[string]any, 0, len(entries))
-	for _, entry := range entries {
-		pages = append(pages, s.pageView(entry.rel, entry.pg))
-	}
-	return pages
+	return lo.Map(entries, func(entry pageEntry, _ int) map[string]any {
+		return s.pageView(entry.rel, entry.pg)
+	})
 }
 
 func (s *Site) sectionRenderPlans(sec *content.Section, entries []map[string]any) []sectionRenderPlan {
@@ -1173,13 +1163,9 @@ func formatAtomTime(t *time.Time) string {
 }
 
 func (s *Site) sortedPagesForFeed(pages []*content.Page) []*content.Page {
-	out := make([]*content.Page, 0, len(pages))
-	for _, p := range pages {
-		if p == nil {
-			continue
-		}
-		out = append(out, p)
-	}
+	out := lo.Filter(pages, func(p *content.Page, _ int) bool {
+		return p != nil
+	})
 	sort.SliceStable(out, func(i, j int) bool {
 		di := out[i].Date
 		dj := out[j].Date
@@ -1534,13 +1520,11 @@ func (s *Site) renderFeed() error {
 			continue
 		}
 		secEntries := s.sectionPageEntries(sec)
-		secPages := make([]*content.Page, 0, len(secEntries))
-		for _, entry := range secEntries {
+		secPages := lo.FilterMap(secEntries, func(entry map[string]any, _ int) (*content.Page, bool) {
 			rel, _ := entry["relative_path"].(string)
-			if p := s.Library.Pages[rel]; p != nil {
-				secPages = append(secPages, p)
-			}
-		}
+			p := s.Library.Pages[rel]
+			return p, p != nil
+		})
 		for _, feedName := range s.feedFilenames() {
 			secFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, sec.Lang, secPages)
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), feedName), secFeed); err != nil {
@@ -1571,8 +1555,8 @@ func (s *Site) feedFilenames() []string {
 
 func (s *Site) taxonomyFeedEnabled(name string, lang string) bool {
 	if lang != "" && lang != s.Config.DefaultLanguage {
-		if lo, ok := s.Config.Languages[lang]; ok {
-			for _, tx := range lo.Taxonomies {
+		if opts, ok := s.Config.Languages[lang]; ok {
+			for _, tx := range opts.Taxonomies {
 				if tx.Name == name {
 					return tx.Feed
 				}
@@ -1714,9 +1698,7 @@ func (s *Site) writeOutput(rel string, content string) error {
 	if strings.HasPrefix(rel, "../") {
 		return fmt.Errorf("invalid output path %q", rel)
 	}
-	if strings.HasPrefix(rel, "/") {
-		rel = strings.TrimPrefix(rel, "/")
-	}
+	rel = strings.TrimPrefix(rel, "/")
 
 	if s.Config.MinifyHTML && strings.HasSuffix(strings.ToLower(rel), ".html") {
 		content = minifyHTML(content)
@@ -1746,6 +1728,7 @@ func (s *Site) writeOutput(rel string, content string) error {
 }
 
 func minifyHTML(in string) string {
+	// TODO: use proper minimizer that doesn't break things like <pre> and <code>
 	trimmed := strings.TrimSpace(in)
 	trimmed = htmlSpaceRe.ReplaceAllString(trimmed, " ")
 	trimmed = strings.ReplaceAll(trimmed, "> <", "><")
@@ -1761,15 +1744,6 @@ func injectLiveReload(html string, reloadURL string) string {
 		return strings.Replace(html, "</body>", script+"</body>", 1)
 	}
 	return html + script
-}
-
-func mapKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func (s *Site) serializedPages() map[string]any {

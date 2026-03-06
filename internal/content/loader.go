@@ -12,6 +12,7 @@ import (
 	"github.com/abdusco/kopkop/internal/content/frontmatter"
 	"github.com/abdusco/kopkop/internal/content/pathing"
 	"github.com/abdusco/kopkop/internal/markdown"
+	"github.com/samber/lo"
 )
 
 type LoadOptions struct {
@@ -257,16 +258,7 @@ func attachPagesToSections(lib *Library) {
 	}
 
 	for _, sec := range lib.Sections {
-		dedup := map[string]struct{}{}
-		uniq := make([]string, 0, len(sec.Pages))
-		for _, p := range sec.Pages {
-			if _, ok := dedup[p]; ok {
-				continue
-			}
-			dedup[p] = struct{}{}
-			uniq = append(uniq, p)
-		}
-		sec.Pages = uniq
+		sec.Pages = lo.Uniq(sec.Pages)
 
 		sortBy := strings.ToLower(strings.TrimSpace(sec.Meta.SortBy))
 		if sortBy == "date" {
@@ -499,9 +491,7 @@ func translationKey(rel string, lang string, defaultLang string) string {
 	name := strings.TrimSuffix(base, filepath.Ext(base))
 	if lang != "" && lang != defaultLang {
 		suffix := "." + lang
-		if strings.HasSuffix(name, suffix) {
-			name = strings.TrimSuffix(name, suffix)
-		}
+		name = strings.TrimSuffix(name, suffix)
 	}
 	if dir == "" {
 		return name
@@ -532,9 +522,7 @@ func baseNameForSlug(relPath string, lang string, defaultLang string) string {
 	name := strings.TrimSuffix(base, ext)
 	if lang != "" && lang != defaultLang {
 		suffix := "." + lang
-		if strings.HasSuffix(name, suffix) {
-			name = strings.TrimSuffix(name, suffix)
-		}
+		name = strings.TrimSuffix(name, suffix)
 	}
 	return name
 }

@@ -16,6 +16,7 @@ import (
 
 	minijinja "github.com/mitsuhiko/minijinja/minijinja-go/v2"
 	"github.com/mitsuhiko/minijinja/minijinja-go/v2/value"
+	"github.com/samber/lo"
 
 	"github.com/abdusco/kopkop/internal/imageproc"
 	"github.com/abdusco/kopkop/internal/markdown"
@@ -151,10 +152,7 @@ type ShortcodeDefinition struct {
 
 func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 	defs := map[string]ShortcodeDefinition{}
-	names := make([]string, 0, len(m.Available))
-	for n := range m.Available {
-		names = append(names, n)
-	}
+	names := lo.Keys(m.Available)
 	sort.Strings(names)
 	for _, name := range names {
 		fileType := "html"
