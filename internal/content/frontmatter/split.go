@@ -20,11 +20,11 @@ type RawFrontMatter struct {
 	Data   string
 }
 
-func SplitContent(filePath string, content string) (RawFrontMatter, string, error) {
+func SplitContent(content string) (RawFrontMatter, string, error) {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
 	start := firstNonWhitespace(normalized)
 	if start < 0 {
-		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter; expected +++ or ---")
 	}
 
 	chunk := normalized[start:]
@@ -38,12 +38,12 @@ func SplitContent(filePath string, content string) (RawFrontMatter, string, erro
 		delim = "---"
 		format = FormatYAML
 	default:
-		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter; expected +++ or ---")
 	}
 
 	afterOpen := chunk[len(delim):]
 	if !strings.HasPrefix(afterOpen, "\n") {
-		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter; expected +++ or ---")
 	}
 	afterOpen = afterOpen[1:]
 
@@ -58,7 +58,7 @@ func SplitContent(filePath string, content string) (RawFrontMatter, string, erro
 		header = append(header, line)
 	}
 	if closeLine == -1 {
-		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter in %q; expected +++ or ---", filePath)
+		return RawFrontMatter{}, "", fmt.Errorf("couldn't find front matter; expected +++ or ---")
 	}
 
 	body := ""
@@ -101,9 +101,9 @@ func (r RawFrontMatter) Decode(v any) error {
 
 func ParseFrontMatter[T any](filePath string, content string) (T, string, error) {
 	var out T
-	raw, body, err := SplitContent(filePath, content)
+	raw, body, err := SplitContent(content)
 	if err != nil {
-		return out, "", err
+		return out, "", fmt.Errorf("error parsing front matter for %q: %w", filePath, err)
 	}
 	if err := raw.Decode(&out); err != nil {
 		return out, "", fmt.Errorf("error parsing front matter for %q: %w", filePath, err)

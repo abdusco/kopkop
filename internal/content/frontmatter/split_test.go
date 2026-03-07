@@ -52,10 +52,9 @@ func TestParseFrontMatter_ValidFiles(t *testing.T) {
 func TestSplitContent_FrontMatterNotFound(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := SplitContent("missing.md", "# no front matter")
+	_, _, err := SplitContent("# no front matter")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "couldn't find front matter")
-	assert.Contains(t, err.Error(), "missing.md")
 }
 
 func TestSplitContent_DelimiterLikeBodyPreserved(t *testing.T) {
@@ -75,7 +74,7 @@ func TestSplitContent_DelimiterLikeBodyPreserved(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			content := readFixture(t, tc.fixture)
-			_, body, err := SplitContent(tc.fixture, content)
+			_, body, err := SplitContent(content)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantBody, body)
 		})
