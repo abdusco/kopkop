@@ -7,63 +7,115 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParse_Table(t *testing.T) {
+func TestParse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		input           string
-		wantOut         string
-		wantCount       int
-		wantFirstName   string
-		wantFirstNth    int
-		wantInnerCount  int
-		wantIgnoredOnly bool
+		name         string
+		input        string
+		assertResult func(t *testing.T, out string, shortcodes []Shortcode, err error)
 	}{
 		{
-			name:          "extract inline shortcode with args",
-			input:         "Inline shortcode: {{ hello(string='hey', int=1, float=2.1, bool=true, array=[true, false]) }} hey",
-			wantOut:       "Inline shortcode: " + Placeholder + " hey",
-			wantCount:     1,
-			wantFirstName: "hello",
-			wantFirstNth:  1,
+			name:  "extract inline shortcode with args",
+			input: "Inline shortcode: {{ hello(string='hey', int=1, float=2.1, bool=true, array=[true, false]) }} hey",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "Inline shortcode: "+Placeholder+" hey", out)
+				require.Len(t, shortcodes, 1)
+
+				sc := shortcodes[0]
+				assert.Equal(t, "hello", sc.Name)
+				assert.Equal(t, 1, sc.Nth)
+				assert.Nil(t, sc.Body)
+				assert.Equal(t, [2]int{18, 18 + len(Placeholder)}, sc.Span)
+				assert.Equal(t, "hey", sc.Args["string"])
+				assert.Equal(t, int64(1), sc.Args["int"])
+				assert.Equal(t, 2.1, sc.Args["float"])
+				assert.Equal(t, true, sc.Args["bool"])
+
+				arr, ok := sc.Args["array"].([]any)
+				require.True(t, ok)
+				require.Len(t, arr, 2)
+				assert.Equal(t, true, arr[0])
+				assert.Equal(t, false, arr[1])
+			},
 		},
 		{
-			name:            "ignored inline shortcode is unignored",
-			input:           "Hello World {{/* youtube() */}} hey",
-			wantOut:         "Hello World {{ youtube() }} hey",
-			wantCount:       0,
-			wantIgnoredOnly: true,
+			name:  "ignored inline shortcode is unignored",
+			input: "Hello World {{/* youtube() */}} hey",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "Hello World {{ youtube() }} hey", out)
+				assert.Empty(t, shortcodes)
+			},
 		},
 		{
-			name:          "extract shortcode with body",
-			input:         "Body shortcode\n {% quote(author='Bobby', array=[[true]]) %}DROP TABLES;{% end %} \n hey",
-			wantOut:       "Body shortcode\n " + Placeholder + " \n hey",
-			wantCount:     1,
-			wantFirstName: "quote",
-			wantFirstNth:  1,
+			name:  "extract shortcode with body",
+			input: "Body shortcode\n {% quote(author='Bobby', array=[[true]]) %}DROP TABLES;{% end %} \n hey",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "Body shortcode\n "+Placeholder+" \n hey", out)
+				require.Len(t, shortcodes, 1)
+
+				sc := shortcodes[0]
+				assert.Equal(t, "quote", sc.Name)
+				assert.Equal(t, 1, sc.Nth)
+				require.NotNil(t, sc.Body)
+				assert.Equal(t, "DROP TABLES;", *sc.Body)
+				assert.Empty(t, sc.Inner)
+			},
 		},
 		{
-			name:            "ignored body shortcode is unignored",
-			input:           "Hello World {%/* youtube() */%} Somebody {%/* end */%} hey",
-			wantOut:         "Hello World {% youtube() %} Somebody {% end %} hey",
-			wantCount:       0,
-			wantIgnoredOnly: true,
+			name:  "ignored body shortcode is unignored",
+			input: "Hello World {%/* youtube() */%} Somebody {%/* end */%} hey",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "Hello World {% youtube() %} Somebody {% end %} hey", out)
+				assert.Empty(t, shortcodes)
+			},
 		},
 		{
-			name:      "multiple shortcodes increment nth",
-			input:     "Hello World {% youtube() %} Somebody {% end %} {{ hello() }}\n {{hello()}}",
-			wantOut:   "Hello World " + Placeholder + " " + Placeholder + "\n " + Placeholder,
-			wantCount: 3,
+			name:  "multiple shortcodes increment nth",
+			input: "Hello World {% youtube() %} Somebody {% end %} {{ hello() }}\n {{hello()}}",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "Hello World "+Placeholder+" "+Placeholder+"\n "+Placeholder, out)
+				require.Len(t, shortcodes, 3)
+				assert.Equal(t, "youtube", shortcodes[0].Name)
+				assert.Equal(t, 1, shortcodes[0].Nth)
+				assert.Equal(t, "hello", shortcodes[1].Name)
+				assert.Equal(t, 1, shortcodes[1].Nth)
+				assert.Equal(t, "hello", shortcodes[2].Name)
+				assert.Equal(t, 2, shortcodes[2].Nth)
+			},
 		},
 		{
-			name:           "nested shortcode bodies",
-			input:          "Hello World {% i_am_gonna_nest() %} Somebody {% i_am_gonna_nest() %} Somebody {% end %} {% end %}!!",
-			wantOut:        "Hello World " + Placeholder + "!!",
-			wantCount:      1,
-			wantFirstName:  "i_am_gonna_nest",
-			wantFirstNth:   1,
-			wantInnerCount: 1,
+			name:  "nested shortcode bodies",
+			input: "Hello World {% i_am_gonna_nest() %} Somebody {% i_am_gonna_nest() %} Somebody {% end %} {% end %}!!",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "Hello World "+Placeholder+"!!", out)
+				require.Len(t, shortcodes, 1)
+
+				sc := shortcodes[0]
+				assert.Equal(t, "i_am_gonna_nest", sc.Name)
+				assert.Equal(t, 1, sc.Nth)
+				require.NotNil(t, sc.Body)
+				assert.Equal(t, "Somebody "+Placeholder, *sc.Body)
+				require.Len(t, sc.Inner, 1)
+				assert.Equal(t, "i_am_gonna_nest", sc.Inner[0].Name)
+				assert.Equal(t, 2, sc.Inner[0].Nth)
+			},
+		},
+		{
+			name:  "invalid shortcode call returns error",
+			input: "bad {{ hello }}",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "invalid shortcode call")
+				assert.Equal(t, "", out)
+				assert.Nil(t, shortcodes)
+			},
 		},
 	}
 
@@ -71,85 +123,73 @@ func TestParse_Table(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out, shortcodes, err := Parse(tc.input)
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantOut, out)
-			assert.Len(t, shortcodes, tc.wantCount)
-
-			if tc.wantCount > 0 && !tc.wantIgnoredOnly {
-				if tc.wantFirstName != "" {
-					assert.Equal(t, tc.wantFirstName, shortcodes[0].Name)
-				}
-				if tc.wantFirstNth != 0 {
-					assert.Equal(t, tc.wantFirstNth, shortcodes[0].Nth)
-				}
-				if tc.wantInnerCount != 0 {
-					assert.Len(t, shortcodes[0].Inner, tc.wantInnerCount)
-					if tc.name == "nested shortcode bodies" {
-						assert.Equal(t, 2, shortcodes[0].Inner[0].Nth)
-					}
-				}
-			}
+			tc.assertResult(t, out, shortcodes, err)
 		})
 	}
 }
 
-func TestParse_InlineShortcodeArgTypes(t *testing.T) {
+func TestShortcodeUpdateRange(t *testing.T) {
 	t.Parallel()
 
-	_, shortcodes, err := Parse("{{ hello(string='hey', int=1, float=2.1, bool=true, array=[true, false]) }}")
-	require.NoError(t, err)
-	require.Len(t, shortcodes, 1)
+	tests := []struct {
+		name         string
+		initial      [2]int
+		transforms   [][3]int
+		assertResult func(t *testing.T, got [2]int)
+	}{
+		{
+			name:    "expands when rendered output is longer",
+			initial: [2]int{10, 20},
+			transforms: [][3]int{
+				{2, 8, 10},
+			},
+			assertResult: func(t *testing.T, got [2]int) {
+				assert.Equal(t, [2]int{14, 24}, got)
+			},
+		},
+		{
+			name:    "ignores transform after shortcode",
+			initial: [2]int{10, 20},
+			transforms: [][3]int{
+				{25, 30, 30},
+			},
+			assertResult: func(t *testing.T, got [2]int) {
+				assert.Equal(t, [2]int{10, 20}, got)
+			},
+		},
+		{
+			name:    "applies multiple transforms in sequence",
+			initial: [2]int{10, 20},
+			transforms: [][3]int{
+				{2, 8, 10},
+				{5, 11, 10},
+			},
+			assertResult: func(t *testing.T, got [2]int) {
+				assert.Equal(t, [2]int{18, 28}, got)
+			},
+		},
+		{
+			name:    "regression shrinks when rendered output is shorter",
+			initial: [2]int{42, 65},
+			transforms: [][3]int{
+				{9, 32, 3},
+			},
+			assertResult: func(t *testing.T, got [2]int) {
+				assert.Equal(t, [2]int{22, 45}, got)
+			},
+		},
+	}
 
-	args := shortcodes[0].Args
-	assert.Equal(t, "hey", args["string"])
-	assert.Equal(t, int64(1), args["int"])
-	assert.Equal(t, 2.1, args["float"])
-	assert.Equal(t, true, args["bool"])
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	arr, ok := args["array"].([]any)
-	require.True(t, ok)
-	require.Len(t, arr, 2)
-	assert.Equal(t, true, arr[0])
-	assert.Equal(t, false, arr[1])
-}
+			sc := Shortcode{Span: tc.initial}
+			for _, tr := range tc.transforms {
+				sc.UpdateRange([2]int{tr[0], tr[1]}, tr[2])
+			}
 
-func TestParse_ShortcodeWithBodyContent(t *testing.T) {
-	t.Parallel()
-
-	_, shortcodes, err := Parse("{% quote(author='Bobby') %}DROP TABLES;{% end %}")
-	require.NoError(t, err)
-	require.Len(t, shortcodes, 1)
-	require.NotNil(t, shortcodes[0].Body)
-	assert.Equal(t, "DROP TABLES;", *shortcodes[0].Body)
-}
-
-func TestParse_MultipleNthValues(t *testing.T) {
-	t.Parallel()
-
-	_, shortcodes, err := Parse("{% youtube() %} a {% end %} {{ hello() }} {{hello()}}")
-	require.NoError(t, err)
-	require.Len(t, shortcodes, 3)
-
-	assert.Equal(t, 1, shortcodes[0].Nth)
-	assert.Equal(t, 1, shortcodes[1].Nth)
-	assert.Equal(t, 2, shortcodes[2].Nth)
-}
-
-func TestShortcode_UpdateRange(t *testing.T) {
-	t.Parallel()
-
-	sc := Shortcode{Span: [2]int{10, 20}}
-	// 6 -> 10 in length so +4 on both sides
-	sc.UpdateRange([2]int{2, 8}, 10)
-	assert.Equal(t, [2]int{14, 24}, sc.Span)
-	// after shortcode so no impact
-	sc.UpdateRange([2]int{25, 30}, 30)
-	assert.Equal(t, [2]int{14, 24}, sc.Span)
-	// +4 again
-	sc.UpdateRange([2]int{5, 11}, 10)
-	assert.Equal(t, [2]int{18, 28}, sc.Span)
-
-	bug := Shortcode{Span: [2]int{42, 65}}
-	bug.UpdateRange([2]int{9, 32}, 3)
-	assert.Equal(t, [2]int{22, 45}, bug.Span)
+			tc.assertResult(t, sc.Span)
+		})
+	}
 }

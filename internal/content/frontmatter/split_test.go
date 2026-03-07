@@ -1,8 +1,6 @@
 package frontmatter
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,77 +12,216 @@ type testMeta struct {
 	Description string `toml:"description" yaml:"description"`
 }
 
-func readFixture(t *testing.T, name string) string {
-	t.Helper()
-	path := filepath.Join("..", "..", "..", "tests", "fixtures", "zola", "frontmatter", name)
-	b, err := os.ReadFile(path)
-	require.NoError(t, err)
-	return string(b)
-}
-
-func TestParseFrontMatter_ValidFiles(t *testing.T) {
+func TestParseFrontMatter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		fixture  string
-		wantBody string
+		name         string
+		filePath     string
+		content      string
+		assertResult func(t *testing.T, gotMeta testMeta, gotBody string, err error)
 	}{
-		{name: "toml with body", fixture: "toml_with_body.md", wantBody: "Hello\n"},
-		{name: "yaml with body", fixture: "yaml_with_body.md", wantBody: "Hello\n"},
-		{name: "toml only", fixture: "toml_only.md", wantBody: ""},
+		{
+			name:     "toml with body",
+			filePath: "toml_with_body.md",
+			content: `+++
+title = "Title"
+description = "hey there"
+date = 2002-10-12
++++
+Hello
+`,
+			assertResult: func(t *testing.T, gotMeta testMeta, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, testMeta{Title: "Title", Description: "hey there"}, gotMeta)
+				assert.Equal(t, "Hello\n", gotBody)
+			},
+		},
+		{
+			name:     "yaml with body",
+			filePath: "yaml_with_body.md",
+			content: `---
+title: Title
+description: hey there
+date: 2002-10-12
+---
+Hello
+`,
+			assertResult: func(t *testing.T, gotMeta testMeta, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, testMeta{Title: "Title", Description: "hey there"}, gotMeta)
+				assert.Equal(t, "Hello\n", gotBody)
+			},
+		},
+		{
+			name:     "toml only",
+			filePath: "toml_only.md",
+			content: `+++
+title = "Title"
+description = "hey there"
+date = 2002-10-12
++++
+`,
+			assertResult: func(t *testing.T, gotMeta testMeta, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, testMeta{Title: "Title", Description: "hey there"}, gotMeta)
+				assert.Equal(t, "", gotBody)
+			},
+		},
+		{
+			name:     "invalid toml includes path context",
+			filePath: "content/posts/invalid_toml.md",
+			content: `+++
+title = "Title"
+description = hey there
++++
+Hello
+`,
+			assertResult: func(t *testing.T, gotMeta testMeta, gotBody string, err error) {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "error parsing front matter for \"content/posts/invalid_toml.md\"")
+				assert.ErrorContains(t, err, "toml deserialize error")
+				assert.Equal(t, "", gotBody)
+				assert.Equal(t, testMeta{}, gotMeta)
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			content := readFixture(t, tc.fixture)
-			meta, body, err := ParseFrontMatter[testMeta](tc.fixture, content)
-			require.NoError(t, err)
-			assert.Equal(t, "Title", meta.Title)
-			assert.Equal(t, "hey there", meta.Description)
-			assert.Equal(t, tc.wantBody, body)
+
+			meta, body, err := ParseFrontMatter[testMeta](tc.filePath, tc.content)
+			tc.assertResult(t, meta, body, err)
 		})
 	}
 }
 
-func TestSplitContent_FrontMatterNotFound(t *testing.T) {
-	t.Parallel()
-
-	_, _, err := SplitContent("# no front matter")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "couldn't find front matter")
-}
-
-func TestSplitContent_DelimiterLikeBodyPreserved(t *testing.T) {
+func TestSplitContent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		fixture  string
-		wantBody string
+		name         string
+		content      string
+		assertResult func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error)
 	}{
-		{name: "body with pluses", fixture: "toml_body_with_pluses.md", wantBody: "+++\n"},
-		{name: "body with minuses", fixture: "toml_body_with_minuses.md", wantBody: "---\n"},
+		{
+			name: "toml with body",
+			content: `+++
+title = "Title"
+description = "hey there"
++++
+Hello
+`,
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, RawFrontMatter{
+					Format: FormatTOML,
+					Data:   "title = \"Title\"\ndescription = \"hey there\"",
+				}, gotRaw)
+				assert.Equal(t, "Hello\n", gotBody)
+			},
+		},
+		{
+			name: "yaml with body",
+			content: `---
+title: Title
+description: hey there
+---
+Hello
+`,
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, RawFrontMatter{
+					Format: FormatYAML,
+					Data:   "title: Title\ndescription: hey there",
+				}, gotRaw)
+				assert.Equal(t, "Hello\n", gotBody)
+			},
+		},
+		{
+			name: "toml only",
+			content: `+++
+title = "Title"
+description = "hey there"
++++
+`,
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, RawFrontMatter{
+					Format: FormatTOML,
+					Data:   "title = \"Title\"\ndescription = \"hey there\"",
+				}, gotRaw)
+				assert.Equal(t, "", gotBody)
+			},
+		},
+		{
+			name: "body with pluses",
+			content: `+++
+title = "Title"
+description = "hey there"
++++
++++
+`,
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, RawFrontMatter{
+					Format: FormatTOML,
+					Data:   "title = \"Title\"\ndescription = \"hey there\"",
+				}, gotRaw)
+				assert.Equal(t, "+++\n", gotBody)
+			},
+		},
+		{
+			name: "body with minuses",
+			content: `+++
+title = "Title"
+description = "hey there"
++++
+---
+`,
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, RawFrontMatter{
+					Format: FormatTOML,
+					Data:   "title = \"Title\"\ndescription = \"hey there\"",
+				}, gotRaw)
+				assert.Equal(t, "---\n", gotBody)
+			},
+		},
+		{
+			name: "leading whitespace before delimiter",
+			content: `
+	
+  +++
+foo = "bar"
++++
+Body
+`,
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, RawFrontMatter{Format: FormatTOML, Data: "foo = \"bar\""}, gotRaw)
+				assert.Equal(t, "Body\n", gotBody)
+			},
+		},
+		{
+			name:    "front matter not found",
+			content: "# no front matter",
+			assertResult: func(t *testing.T, gotRaw RawFrontMatter, gotBody string, err error) {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "couldn't find front matter")
+				assert.Equal(t, RawFrontMatter{}, gotRaw)
+				assert.Equal(t, "", gotBody)
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			content := readFixture(t, tc.fixture)
-			_, body, err := SplitContent(content)
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantBody, body)
+
+			raw, body, err := SplitContent(tc.content)
+			tc.assertResult(t, raw, body, err)
 		})
 	}
-}
-
-func TestParseFrontMatter_ErrorIncludesPathContext(t *testing.T) {
-	t.Parallel()
-
-	content := readFixture(t, "invalid_toml.md")
-	_, _, err := ParseFrontMatter[testMeta]("content/posts/invalid_toml.md", content)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "content/posts/invalid_toml.md")
-	assert.Contains(t, err.Error(), "toml deserialize error")
 }

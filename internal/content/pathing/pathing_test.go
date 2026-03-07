@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestComputePageSlug_Table(t *testing.T) {
+func TestComputePageSlug(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -54,7 +54,7 @@ func TestComputePageSlug_Table(t *testing.T) {
 	}
 }
 
-func TestComputePagePath_Table(t *testing.T) {
+func TestComputePagePath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -95,7 +95,7 @@ func TestComputePagePath_Table(t *testing.T) {
 	}
 }
 
-func TestMakePermalink_Table(t *testing.T) {
+func TestMakePermalink(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
