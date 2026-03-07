@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -23,6 +23,7 @@ import (
 	"github.com/abdusco/kopkop/internal/search"
 	"github.com/abdusco/kopkop/internal/templates"
 	"github.com/samber/lo"
+	"github.com/sourcegraph/conc/pool"
 	"github.com/tdewolff/minify/v2"
 	minifyhtml "github.com/tdewolff/minify/v2/html"
 )
@@ -208,23 +209,14 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			return content.Heading{ID: h.ID, Level: h.Level, Title: h.Title}
 		})
 	}
-	// TODO: use conc/pool
-	if concurrency <= 0 {
-		concurrency = 1
-	}
 
-	jobs := make(chan string)
-	results := make(chan pageRenderArtifact, len(paths))
-	var wg sync.WaitGroup
-
-	worker := func() {
-		defer wg.Done()
-		for rel := range jobs {
+	workers := pool.NewWithResults[pageRenderArtifact]().WithMaxGoroutines(runtime.GOMAXPROCS(0))
+	for _, rel := range paths {
+		workers.Go(func() pageRenderArtifact {
 			pg := s.Library.Pages[rel]
 			if strings.TrimSpace(pg.Meta.RedirectTo) != "" {
 				redirect := s.renderRedirect(s.redirectTargetURL(pg.Meta.RedirectTo))
-				results <- pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
-				continue
+				return pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
 			}
 
 			tplName := s.pageTemplateFor(pg)
@@ -240,33 +232,14 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 				html = "<html><body>" + pg.Content + "</body></html>"
 			}
 			html = injectLiveReload(html, liveReloadURL)
-			results <- pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: html, Page: pg}
-		}
+			return pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: html, Page: pg}
+		})
 	}
+	renderedArtifacts := workers.Wait()
 
-	if concurrency > len(paths) {
-		concurrency = len(paths)
-	}
-	if concurrency < 1 {
-		concurrency = 1
-	}
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go worker()
-	}
-	for _, rel := range paths {
-		jobs <- rel
-	}
-	close(jobs)
-	wg.Wait()
-	close(results)
-
-	artifacts := make(map[string]pageRenderArtifact, len(paths))
-	for r := range results {
-		if r.Err != nil {
-			return r.Err
-		}
-		artifacts[r.Path] = r
+	artifacts := make(map[string]pageRenderArtifact, len(renderedArtifacts))
+	for _, artifact := range renderedArtifacts {
+		artifacts[artifact.Path] = artifact
 	}
 
 	for _, rel := range paths {

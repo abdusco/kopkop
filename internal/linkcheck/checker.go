@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/abdusco/kopkop/internal/config"
 	"github.com/abdusco/kopkop/internal/content"
+	"github.com/samber/lo"
+	"github.com/sourcegraph/conc/pool"
 )
 
 type Result struct {
@@ -23,11 +25,13 @@ type Result struct {
 }
 
 func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) []Result {
-	unique := map[string]struct{}{}
-	for _, p := range lib.Pages {
-		for _, link := range p.ExternalLinks {
-			unique[link] = struct{}{}
-		}
+	extLinks := lo.FlatMap(lo.Values(lib.Pages), func(pg *content.Page, _ int) []string {
+		return pg.ExternalLinks
+	})
+	extLinks = lo.Uniq(extLinks)
+
+	if len(extLinks) == 0 {
+		return nil
 	}
 
 	client := &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second}
@@ -35,19 +39,31 @@ func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) []Result {
 	if cfg.UseCache {
 		cache = loadCache(cfg.CacheFile)
 	}
-	var mu sync.Mutex
-	results := []Result{}
 
-	for link := range unique {
-		res, ok := cache[link]
-		if !ok {
-			res = checkURL(client, link, cfg)
+	pendingLinks := lo.Filter(extLinks, func(link string, _ int) bool {
+		_, ok := cache[link]
+		return !ok
+	})
+
+	if len(pendingLinks) > 0 {
+		workers := pool.NewWithResults[Result]().WithMaxGoroutines(runtime.GOMAXPROCS(0) * 4)
+		for _, link := range pendingLinks {
+			workers.Go(func() Result {
+				return checkURL(client, link, cfg)
+			})
 		}
-		mu.Lock()
-		cache[link] = res
-		results = append(results, res)
-		mu.Unlock()
+		for _, res := range workers.Wait() {
+			cache[res.URL] = res
+		}
 	}
+
+	results := make([]Result, 0, len(extLinks))
+	for _, link := range extLinks {
+		if res, ok := cache[link]; ok {
+			results = append(results, res)
+		}
+	}
+
 	if cfg.UseCache {
 		_ = saveCache(cfg.CacheFile, cache)
 	}

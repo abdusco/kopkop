@@ -71,6 +71,7 @@ func contentTypeToFormat(ct string) string {
 
 var loadURLClient = func() *http.Client {
 	timeout := 30 * time.Second
+	// use config
 	if v := os.Getenv("LOAD_URL_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			timeout = d

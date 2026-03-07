@@ -20,6 +20,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/tdewolff/minify/v2 v2.24.10 // indirect
 	github.com/tdewolff/parse/v2 v2.8.10 // indirect
 	golang.org/x/sys v0.41.0 // indirect
