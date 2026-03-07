@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	stdhtml "html"
-	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -27,7 +26,6 @@ var moreDividerRe = regexp.MustCompile(`(?is)<!--\s*more\s*-->`)
 var headingRe = regexp.MustCompile(`(?s)<h([1-6]) id="([^"]+)">(.*?)</h[1-6]>`)
 var continueReadingParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(continueReadingHTML) + `\s*</p>`)
 var fencedCodeLangRe = regexp.MustCompile(`<pre><code class="language-([^"]+)">`)
-var externalAnchorStartRe = regexp.MustCompile(`<a\s+([^>]*?)href="(https?://[^"]+)"([^>]*)>`)
 var highlightedCodeBlockRe = regexp.MustCompile(`(?s)<pre data-lang="([^"]+)" class="language-[^"]*">\s*<code class="language-[^"]*" data-lang="[^"]*">(.*?)</code>\s*</pre>`)
 
 type Heading struct {
@@ -36,16 +34,10 @@ type Heading struct {
 	Title string
 }
 
-type InternalLink struct {
-	Path   string
-	Anchor *string
-}
-
 type Rendered struct {
 	Body          string
 	Summary       *string
 	TOC           []Heading
-	InternalLinks []InternalLink
 	ExternalLinks []string
 }
 
@@ -71,58 +63,13 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	pc := parser.NewContext()
 	doc := md.Parser().Parse(text.NewReader(source), parser.WithContext(pc))
 
-	internalLinks := make([]InternalLink, 0)
-	externalLinks := make([]string, 0)
-	headingIDCounts := map[string]int{}
+	applyHeadingIDs(doc, source)
 
-	err := ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-
-		switch h := n.(type) {
-		case *ast.Heading:
-			text := headingNodeText(h, source)
-			id := slugifyHeadingID(text)
-			if id == "" {
-				id = "section"
-			}
-			if count, exists := headingIDCounts[id]; exists {
-				headingIDCounts[id] = count + 1
-				id = fmt.Sprintf("%s-%d", id, count)
-			} else {
-				headingIDCounts[id] = 1
-			}
-			h.SetAttributeString("id", []byte(id))
-		}
-
-		switch node := n.(type) {
-		case *ast.Link:
-			dest := string(node.Destination)
-			resolved, internal, external, err := resolveLink(dest, ctx)
-			if err != nil {
-				return ast.WalkStop, err
-			}
-			if internal != nil {
-				internalLinks = append(internalLinks, *internal)
-			}
-			if external != "" {
-				externalLinks = append(externalLinks, external)
-			}
-			node.Destination = []byte(resolved)
-		case *ast.Image:
-			dest := string(node.Destination)
-			resolved, _, _, err := resolveLink(dest, ctx)
-			if err != nil {
-				return ast.WalkStop, err
-			}
-			node.Destination = []byte(resolved)
-		}
-		return ast.WalkContinue, nil
-	})
-	if err != nil {
+	externalLinks := transformExternalLinks(doc, ctx.ExternalLinksTargetBlank)
+	if err := transformInternalLinks(doc, ctx); err != nil {
 		return Rendered{}, err
 	}
+	transformColocatedAssetLinks(doc, ctx)
 
 	buf := bytes.NewBuffer(nil)
 	if err := md.Renderer().Render(buf, source, doc); err != nil {
@@ -137,13 +84,21 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	if ctx.InsertAnchorLinks {
 		body = insertAnchorLinks(body)
 	}
-	if ctx.ExternalLinksTargetBlank {
-		body = addTargetBlankToExternalLinks(body)
-	}
 	summary := extractSummary(content, ctx, md)
 
-	toc := make([]Heading, 0)
-	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	toc := collectTOC(doc, source)
+
+	return Rendered{
+		Body:          body,
+		Summary:       summary,
+		TOC:           toc,
+		ExternalLinks: externalLinks,
+	}, nil
+}
+
+func applyHeadingIDs(doc ast.Node, source []byte) {
+	headingIDCounts := map[string]int{}
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
@@ -151,6 +106,118 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 		if !ok {
 			return ast.WalkContinue, nil
 		}
+
+		text := headingNodeText(h, source)
+		id := slugifyHeadingID(text)
+		if id == "" {
+			id = "section"
+		}
+		if count, exists := headingIDCounts[id]; exists {
+			headingIDCounts[id] = count + 1
+			id = fmt.Sprintf("%s-%d", id, count)
+		} else {
+			headingIDCounts[id] = 1
+		}
+		h.SetAttributeString("id", []byte(id))
+		return ast.WalkContinue, nil
+	})
+}
+
+func transformInternalLinks(doc ast.Node, ctx RenderContext) error {
+	err := ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		switch node := n.(type) {
+		case *ast.Link:
+			dest := string(node.Destination)
+			if !strings.HasPrefix(dest, "@/") {
+				break
+			}
+			resolved, err := resolveInternalLink(dest, ctx)
+			if err != nil {
+				return ast.WalkStop, err
+			}
+			node.Destination = []byte(resolved)
+		case *ast.Image:
+			dest := string(node.Destination)
+			if !strings.HasPrefix(dest, "@/") {
+				break
+			}
+			resolved, err := resolveInternalLink(dest, ctx)
+			if err != nil {
+				return ast.WalkStop, err
+			}
+			node.Destination = []byte(resolved)
+		}
+		return ast.WalkContinue, nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func transformColocatedAssetLinks(doc ast.Node, ctx RenderContext) {
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		switch node := n.(type) {
+		case *ast.Link:
+			dest := string(node.Destination)
+			if isColocatedAssetLink(dest) {
+				node.Destination = []byte(resolveColocatedAssetLink(dest, ctx))
+			}
+		case *ast.Image:
+			dest := string(node.Destination)
+			if isColocatedAssetLink(dest) {
+				node.Destination = []byte(resolveColocatedAssetLink(dest, ctx))
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+}
+
+func transformExternalLinks(doc ast.Node, addTargetBlank bool) []string {
+	var externalLinks []string
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		node, ok := n.(*ast.Link)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+
+		link := string(node.Destination)
+		if !isExternalLink(link) {
+			return ast.WalkContinue, nil
+		}
+
+		externalLinks = append(externalLinks, link)
+		if addTargetBlank {
+			node.SetAttributeString("target", []byte("_blank"))
+			node.SetAttributeString("rel", []byte("noopener"))
+		}
+		return ast.WalkContinue, nil
+	})
+	return externalLinks
+}
+
+func collectTOC(doc ast.Node, source []byte) []Heading {
+	var toc []Heading
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		h, ok := n.(*ast.Heading)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+
 		idRaw, ok := h.AttributeString("id")
 		id := ""
 		if ok {
@@ -161,21 +228,15 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 				id = v
 			}
 		}
+
 		toc = append(toc, Heading{
 			ID:    id,
 			Level: h.Level,
-			Title: headingText(h, source),
+			Title: nodePlainText(h, source),
 		})
 		return ast.WalkContinue, nil
 	})
-
-	return Rendered{
-		Body:          body,
-		Summary:       summary,
-		TOC:           toc,
-		InternalLinks: internalLinks,
-		ExternalLinks: externalLinks,
-	}, nil
+	return toc
 }
 
 func insertAnchorLinks(htmlIn string) string {
@@ -193,44 +254,21 @@ func insertAnchorLinks(htmlIn string) string {
 	})
 }
 
-func addTargetBlankToExternalLinks(htmlIn string) string {
-	return externalAnchorStartRe.ReplaceAllStringFunc(htmlIn, func(m string) string {
-		sub := externalAnchorStartRe.FindStringSubmatch(m)
-		if len(sub) != 4 {
-			return m
-		}
-		before := sub[1]
-		href := sub[2]
-		after := sub[3]
-		attrs := strings.TrimSpace(before + " " + after)
-		target := ""
-		rel := ""
-		if strings.Contains(attrs, `target=`) {
-			target = ""
-		} else {
-			target = ` target="_blank"`
-		}
-		if strings.Contains(attrs, `rel=`) {
-			rel = ""
-		} else {
-			rel = ` rel="noopener"`
-		}
-		if attrs != "" {
-			attrs = " " + attrs
-		}
-		return `<a` + attrs + rel + target + ` href="` + href + `">`
-	})
+func headingNodeText(h *ast.Heading, source []byte) string {
+	return nodePlainText(h, source)
 }
 
-func headingNodeText(h *ast.Heading, source []byte) string {
+func nodePlainText(n ast.Node, source []byte) string {
 	var b strings.Builder
-	_ = ast.Walk(h, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	_ = ast.Walk(n, func(curr ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
-		switch x := n.(type) {
+		switch x := curr.(type) {
 		case *ast.Text:
 			b.Write(x.Segment.Value(source))
+		case *ast.String:
+			b.Write(x.Text(source))
 		}
 		return ast.WalkContinue, nil
 	})
@@ -315,62 +353,40 @@ func extractSummary(content string, ctx RenderContext, md goldmark.Markdown) *st
 	return &s
 }
 
-func headingText(h *ast.Heading, source []byte) string {
-	var b strings.Builder
-	for c := h.FirstChild(); c != nil; c = c.NextSibling() {
-		if t, ok := c.(*ast.Text); ok {
-			b.Write(t.Segment.Value(source))
-		}
+func resolveInternalLink(link string, ctx RenderContext) (resolved string, err error) {
+	mdPath, hash := splitLinkAnchor(strings.TrimPrefix(link, "@/"))
+	permalink, ok := ctx.Permalinks[mdPath]
+	if !ok {
+		return "", fmt.Errorf("broken relative link %q", link)
 	}
-	return b.String()
+
+	full := permalink
+	if hash != nil {
+		full = permalink + "#" + *hash
+	}
+	return full, nil
 }
 
-func resolveLink(link string, ctx RenderContext) (resolved string, internal *InternalLink, external string, err error) {
-	if strings.HasPrefix(link, "@/") {
-		mdPath, anchor := splitLinkAnchor(strings.TrimPrefix(link, "@/"))
-		permalink, ok := ctx.Permalinks[mdPath]
-		if !ok {
-			return "", nil, "", fmt.Errorf("broken relative link %q", link)
-		}
-		full := permalink
-		if anchor != nil {
-			full = permalink + "#" + *anchor
-		}
-		return full, &InternalLink{Path: mdPath, Anchor: anchor}, "", nil
+func resolveColocatedAssetLink(link string, ctx RenderContext) string {
+	base := strings.TrimRight(ctx.CurrentPagePermalink, "/")
+	if base == "" {
+		return link
 	}
-
-	if isColocatedAssetLink(link) {
-		base := strings.TrimRight(ctx.CurrentPagePermalink, "/")
-		if base == "" {
-			return link, nil, "", nil
-		}
-		return base + "/" + link, nil, "", nil
-	}
-
-	if isExternalLink(link) {
-		return link, nil, link, nil
-	}
-
-	return link, nil, "", nil
+	return base + "/" + link
 }
 
 func isExternalLink(link string) bool {
-	u, err := url.Parse(link)
-	if err != nil {
-		return false
-	}
-	return u.Scheme == "http" || u.Scheme == "https"
+	return strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")
 }
 
 func splitLinkAnchor(link string) (string, *string) {
-	idx := strings.IndexByte(link, '#')
-	if idx == -1 {
+	before, hash, ok := strings.Cut(link, "#")
+	if !ok {
 		clean := path.Clean(link)
 		return strings.TrimPrefix(clean, "/"), nil
 	}
-	p := strings.TrimPrefix(path.Clean(link[:idx]), "/")
-	a := link[idx+1:]
-	return p, &a
+	p := strings.TrimPrefix(path.Clean(before), "/")
+	return p, &hash
 }
 
 func isColocatedAssetLink(link string) bool {

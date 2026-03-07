@@ -110,9 +110,6 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 				for _, h := range res.TOC {
 					page.TOC = append(page.TOC, Heading{ID: h.ID, Level: h.Level, Title: h.Title})
 				}
-				for _, il := range res.InternalLinks {
-					page.InternalLinks = append(page.InternalLinks, InternalLink{Path: il.Path, Anchor: il.Anchor})
-				}
 				page.ExternalLinks = append(page.ExternalLinks, res.ExternalLinks...)
 			}
 		}

@@ -204,9 +204,6 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 		pg.Content = rendered.Body
 		pg.Summary = rendered.Summary
 		pg.ExternalLinks = rendered.ExternalLinks
-		pg.InternalLinks = lo.Map(rendered.InternalLinks, func(il markdown.InternalLink, _ int) content.InternalLink {
-			return content.InternalLink{Path: il.Path, Anchor: il.Anchor}
-		})
 		pg.TOC = lo.Map(rendered.TOC, func(h markdown.Heading, _ int) content.Heading {
 			return content.Heading{ID: h.ID, Level: h.Level, Title: h.Title}
 		})
@@ -951,7 +948,6 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 	}
 	return nil
 }
-
 
 func (s *Site) renderSitemap() error {
 	urls := make([]string, 0, len(s.Library.Permalinks))

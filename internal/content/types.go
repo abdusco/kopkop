@@ -54,7 +54,6 @@ type Page struct {
 	Components    []string
 	Assets        []string
 	TOC           []Heading
-	InternalLinks []InternalLink
 	ExternalLinks []string
 	Date          *time.Time
 	Updated       *time.Time
@@ -78,11 +77,6 @@ type Heading struct {
 	ID    string
 	Level int
 	Title string
-}
-
-type InternalLink struct {
-	Path   string
-	Anchor *string
 }
 
 type TaxonomyTerm struct {
