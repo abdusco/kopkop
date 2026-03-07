@@ -1,12 +1,15 @@
 package markdown
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	ghtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 )
 
@@ -18,211 +21,443 @@ func parseDoc(t *testing.T, in string) (ast.Node, []byte) {
 	return doc, source
 }
 
-func firstLinkNode(t *testing.T, doc ast.Node) *ast.Link {
+func renderDocHTML(t *testing.T, doc ast.Node, source []byte) (string, error) {
 	t.Helper()
-	var out *ast.Link
-	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-		if link, ok := n.(*ast.Link); ok {
-			out = link
-			return ast.WalkStop, nil
-		}
-		return ast.WalkContinue, nil
-	})
-	require.NotNil(t, out)
-	return out
+	md := goldmark.New(
+		goldmark.WithRendererOptions(
+			ghtml.WithUnsafe(),
+			ghtml.WithXHTML(),
+		),
+	)
+	buf := bytes.NewBuffer(nil)
+	err := md.Renderer().Render(buf, source, doc)
+	return buf.String(), err
 }
 
-func firstImageNode(t *testing.T, doc ast.Node) *ast.Image {
-	t.Helper()
-	var out *ast.Image
-	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-		if img, ok := n.(*ast.Image); ok {
-			out = img
-			return ast.WalkStop, nil
-		}
-		return ast.WalkContinue, nil
-	})
-	require.NotNil(t, out)
-	return out
-}
-
-func TestRenderContent_SummaryDivider(t *testing.T) {
+func TestRenderContent(t *testing.T) {
 	t.Parallel()
 
-	ctx := RenderContext{}
-	res, err := RenderContent("hello\n\n<!-- more -->\n\nworld", ctx)
-	require.NoError(t, err)
-
-	assert.Contains(t, res.Body, "continue-reading")
-	require.NotNil(t, res.Summary)
-	assert.Contains(t, *res.Summary, "<p>hello</p>")
-}
-
-func TestRenderContent_DuplicateHeadingAnchors(t *testing.T) {
-	t.Parallel()
-
-	ctx := RenderContext{}
-	res, err := RenderContent("# Example\n\n# Example\n", ctx)
-	require.NoError(t, err)
-
-	assert.Contains(t, res.Body, `id="example"`)
-	assert.Contains(t, res.Body, `id="example-1"`)
-	require.Len(t, res.TOC, 2)
-	assert.Equal(t, "example", res.TOC[0].ID)
-	assert.Equal(t, "example-1", res.TOC[1].ID)
-}
-
-func TestRenderContent_HeadingTextIncludesInlineCode(t *testing.T) {
-	t.Parallel()
-
-	res, err := RenderContent("# text here `with code`", RenderContext{})
-	require.NoError(t, err)
-
-	require.Len(t, res.TOC, 1)
-	assert.Equal(t, "text here with code", res.TOC[0].Title)
-	assert.Equal(t, "text-here-with-code", res.TOC[0].ID)
-	assert.Contains(t, res.Body, `id="text-here-with-code"`)
-}
-
-func TestRenderContent_InternalAndExternalLinks(t *testing.T) {
-	t.Parallel()
-
-	ctx := RenderContext{
-		Permalinks: map[string]string{
-			"content/posts/hello.md": "https://example.com/posts/hello/",
+	tests := []struct {
+		name         string
+		markdown     string
+		ctx          RenderContext
+		assertResult func(t *testing.T, html string, err error, res Rendered)
+	}{
+		{
+			name:     "summary divider",
+			markdown: "hello\n\n<!-- more -->\n\nworld",
+			ctx:      RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, res Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `<span id="continue-reading"></span>`)
+				require.NotNil(t, res.Summary)
+				assert.Contains(t, *res.Summary, "<p>hello</p>")
+			},
 		},
-		CurrentPagePermalink: "https://example.com/posts/current/",
+		{
+			name:     "duplicate heading ids and toc",
+			markdown: "# Example\n\n# Example\n",
+			ctx:      RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, res Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `id="example"`)
+				assert.Contains(t, html, `id="example-1"`)
+				require.Len(t, res.TOC, 2)
+				assert.Equal(t, "example", res.TOC[0].ID)
+				assert.Equal(t, "example-1", res.TOC[1].ID)
+			},
+		},
+		{
+			name:     "heading inline code in slug and toc",
+			markdown: "# text here `with code`",
+			ctx:      RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, res Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `id="text-here-with-code"`)
+				require.Len(t, res.TOC, 1)
+				assert.Equal(t, "text here with code", res.TOC[0].Title)
+				assert.Equal(t, "text-here-with-code", res.TOC[0].ID)
+			},
+		},
+		{
+			name:     "internal external and colocated links",
+			markdown: "[internal](@/content/posts/hello.md#intro) [ext](https://example.org) [asset](image.png)",
+			ctx: RenderContext{
+				Permalinks:           map[string]string{"content/posts/hello.md": "https://example.com/posts/hello/"},
+				CurrentPagePermalink: "https://example.com/posts/current/",
+			},
+			assertResult: func(t *testing.T, html string, err error, res Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.com/posts/hello/#intro"`)
+				assert.Contains(t, html, `href="https://example.com/posts/current/image.png"`)
+				assert.Equal(t, []string{"https://example.org"}, res.ExternalLinks)
+			},
+		},
+		{
+			name:     "broken internal link error",
+			markdown: "[broken](@/content/posts/missing.md)",
+			ctx:      RenderContext{Permalinks: map[string]string{}},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.Error(t, err)
+				assert.ErrorContains(t, err, "broken relative link")
+				assert.Equal(t, "", html)
+			},
+		},
+		{
+			name:     "anchor links toggle on",
+			markdown: "# Heading",
+			ctx:      RenderContext{InsertAnchorLinks: true},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `class="zola-anchor"`)
+				assert.Contains(t, html, `href="#heading"`)
+			},
+		},
+		{
+			name:     "anchor links toggle off",
+			markdown: "# Heading",
+			ctx:      RenderContext{InsertAnchorLinks: false},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.NotContains(t, html, `class="zola-anchor"`)
+			},
+		},
+		{
+			name:     "continue reading not wrapped paragraph",
+			markdown: "Before\n\n<!-- more -->\n\nAfter",
+			ctx:      RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `<span id="continue-reading"></span>`)
+				assert.NotContains(t, html, `<p><span id="continue-reading"></span></p>`)
+			},
+		},
+		{
+			name:     "fenced code language attrs",
+			markdown: "```rust\nfn main() {}\n```",
+			ctx:      RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">`)
+			},
+		},
+		{
+			name:     "highlighted code known theme",
+			markdown: "```go\npackage main\n```",
+			ctx:      RenderContext{HighlightTheme: "github"},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `data-highlighted="true"`)
+				assert.Contains(t, html, `class="language-go z-code z-chroma"`)
+				assert.Contains(t, html, `<span class="z-`)
+			},
+		},
+		{
+			name:     "highlighted code unknown theme fallback",
+			markdown: "```go\npackage main\n```",
+			ctx:      RenderContext{HighlightTheme: "missing-theme"},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `data-highlighted="true"`)
+				assert.Contains(t, html, `class="language-go z-code z-chroma"`)
+				assert.Contains(t, html, `<span class="z-`)
+			},
+		},
+		{
+			name:     "external links target blank",
+			markdown: "[ext](https://example.org)",
+			ctx:      RenderContext{ExternalLinksTargetBlank: true},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.org"`)
+				assert.Contains(t, html, `target="_blank"`)
+				assert.Contains(t, html, `rel="noopener"`)
+			},
+		},
 	}
 
-	in := "[internal](@/content/posts/hello.md#intro) [ext](https://example.org) [asset](image.png)"
-	res, err := RenderContent(in, ctx)
-	require.NoError(t, err)
-
-	assert.Contains(t, res.Body, "https://example.com/posts/hello/#intro")
-	assert.Contains(t, res.Body, "https://example.com/posts/current/image.png")
-	assert.Equal(t, []string{"https://example.org"}, res.ExternalLinks)
-}
-
-func TestRenderContent_BrokenInternalLinkErrors(t *testing.T) {
-	t.Parallel()
-
-	ctx := RenderContext{
-		Permalinks: map[string]string{},
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := RenderContent(tc.markdown, tc.ctx)
+			html := ""
+			if err == nil {
+				html = res.Body
+			}
+			tc.assertResult(t, html, err, res)
+		})
 	}
-	_, err := RenderContent("[broken](@/content/posts/missing.md)", ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "broken relative link")
 }
 
-func TestRenderContent_AnchorLinksToggle(t *testing.T) {
+func TestHighlightCSS(t *testing.T) {
 	t.Parallel()
 
-	resWithoutAnchors, err := RenderContent("# Heading", RenderContext{InsertAnchorLinks: false})
-	require.NoError(t, err)
-	assert.NotContains(t, resWithoutAnchors.Body, "zola-anchor")
+	tests := []struct {
+		name         string
+		theme        string
+		assertResult func(t *testing.T, css string, err error)
+	}{
+		{
+			name:  "known theme",
+			theme: "github",
+			assertResult: func(t *testing.T, css string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, css, ".z-")
+			},
+		},
+		{
+			name:  "unknown theme fallback",
+			theme: "does-not-exist",
+			assertResult: func(t *testing.T, css string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, css, ".z-")
+			},
+		},
+		{
+			name:  "empty theme errors",
+			theme: "",
+			assertResult: func(t *testing.T, css string, err error) {
+				assert.Error(t, err)
+				assert.ErrorContains(t, err, "must not be empty")
+				assert.Equal(t, "", css)
+			},
+		},
+	}
 
-	resWithAnchors, err := RenderContent("# Heading", RenderContext{InsertAnchorLinks: true})
-	require.NoError(t, err)
-	assert.Contains(t, resWithAnchors.Body, "zola-anchor")
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			css, err := HighlightCSS(tc.theme)
+			tc.assertResult(t, css, err)
+		})
+	}
 }
 
-func TestRenderContent_ContinueReadingIsNotWrappedInParagraph(t *testing.T) {
+func TestTransformHeadings(t *testing.T) {
 	t.Parallel()
 
-	res, err := RenderContent("Before\n\n<!-- more -->\n\nAfter", RenderContext{})
-	require.NoError(t, err)
-	assert.Contains(t, res.Body, `<span id="continue-reading"></span>`)
-	assert.NotContains(t, res.Body, `<p><span id="continue-reading"></span></p>`)
+	tests := []struct {
+		name          string
+		markdown      string
+		insertAnchors bool
+		assertResult  func(t *testing.T, html string, err error)
+	}{
+		{
+			name:          "ids only",
+			markdown:      "# One\n\n## Two",
+			insertAnchors: false,
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `<h1 id="one">One</h1>`)
+				assert.Contains(t, html, `<h2 id="two">Two</h2>`)
+				assert.NotContains(t, html, `class="zola-anchor"`)
+			},
+		},
+		{
+			name:          "duplicate headings with anchors",
+			markdown:      "# Example\n\n# Example",
+			insertAnchors: true,
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `id="example"`)
+				assert.Contains(t, html, `id="example-1"`)
+				assert.Equal(t, 2, strings.Count(html, `class="zola-anchor"`))
+				assert.Contains(t, html, `href="#example"`)
+				assert.Contains(t, html, `href="#example-1"`)
+			},
+		},
+		{
+			name:          "inline code participates in slug",
+			markdown:      "# text here `with code`",
+			insertAnchors: true,
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `id="text-here-with-code"`)
+				assert.Contains(t, html, `href="#text-here-with-code"`)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, source := parseDoc(t, tc.markdown)
+			transformHeadings(doc, source, tc.insertAnchors)
+			html, err := renderDocHTML(t, doc, source)
+			tc.assertResult(t, html, err)
+		})
+	}
 }
 
-func TestRenderContent_FencedCodeHasZolaLikeLanguageAttributes(t *testing.T) {
+func TestTransformInternalLinks(t *testing.T) {
 	t.Parallel()
 
-	res, err := RenderContent("```rust\nfn main() {}\n```", RenderContext{})
-	require.NoError(t, err)
-	assert.Contains(t, res.Body, `<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">`)
+	tests := []struct {
+		name         string
+		markdown     string
+		permalinks   map[string]string
+		assertResult func(t *testing.T, html string, err error)
+	}{
+		{
+			name:       "rewrites internal link and image",
+			markdown:   "[internal](@/content/posts/hello.md#intro) ![img](@/content/posts/hello.md)",
+			permalinks: map[string]string{"content/posts/hello.md": "https://example.com/posts/hello/"},
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.com/posts/hello/#intro"`)
+				assert.Contains(t, html, `src="https://example.com/posts/hello/"`)
+			},
+		},
+		{
+			name:       "non internal destinations unchanged",
+			markdown:   "[ext](https://example.org) ![img](photo.png)",
+			permalinks: map[string]string{},
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.org"`)
+				assert.Contains(t, html, `src="photo.png"`)
+			},
+		},
+		{
+			name:       "broken internal link returns error",
+			markdown:   "[broken](@/content/posts/missing.md)",
+			permalinks: map[string]string{},
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.Error(t, err)
+				assert.ErrorContains(t, err, "broken relative link")
+				assert.Equal(t, "", html)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, source := parseDoc(t, tc.markdown)
+			err := transformInternalLinks(doc, RenderContext{Permalinks: tc.permalinks})
+			html := ""
+			if err == nil {
+				html, err = renderDocHTML(t, doc, source)
+			}
+			tc.assertResult(t, html, err)
+		})
+	}
 }
 
-func TestRenderContent_HighlightedCodeAddsZCodeSpans(t *testing.T) {
+func TestTransformColocatedAssetLinks(t *testing.T) {
 	t.Parallel()
 
-	res, err := RenderContent("```go\npackage main\n```", RenderContext{HighlightTheme: "github"})
-	require.NoError(t, err)
-	assert.Contains(t, res.Body, `data-highlighted="true"`)
-	assert.Contains(t, res.Body, `class="language-go z-code z-chroma"`)
-	assert.Contains(t, res.Body, `<span class="z-`)
+	tests := []struct {
+		name         string
+		markdown     string
+		baseURL      string
+		assertResult func(t *testing.T, html string, err error)
+	}{
+		{
+			name:     "rewrites relative assets",
+			markdown: "[asset](image.png) ![img](media/photo.jpg)",
+			baseURL:  "https://example.com/posts/current/",
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.com/posts/current/image.png"`)
+				assert.Contains(t, html, `src="https://example.com/posts/current/media/photo.jpg"`)
+			},
+		},
+		{
+			name:     "skips non-colocated paths",
+			markdown: "[root](/asset.png) ![img](../photo.jpg)",
+			baseURL:  "https://example.com/posts/current/",
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="/asset.png"`)
+				assert.Contains(t, html, `src="../photo.jpg"`)
+			},
+		},
+		{
+			name:     "skips schema links",
+			markdown: "[mail](mailto:test@example.com) ![img](https://cdn.example.com/a.png)",
+			baseURL:  "https://example.com/posts/current/",
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="mailto:test@example.com"`)
+				assert.Contains(t, html, `src="https://cdn.example.com/a.png"`)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, source := parseDoc(t, tc.markdown)
+			transformColocatedAssetLinks(doc, RenderContext{CurrentPagePermalink: tc.baseURL})
+			html, err := renderDocHTML(t, doc, source)
+			tc.assertResult(t, html, err)
+		})
+	}
 }
 
-func TestRenderContent_HighlightedCodeFallbackForUnknownTheme(t *testing.T) {
+func TestTransformExternalLinks(t *testing.T) {
 	t.Parallel()
 
-	res, err := RenderContent("```go\npackage main\n```", RenderContext{HighlightTheme: "missing-theme"})
-	require.NoError(t, err)
-	assert.Contains(t, res.Body, `data-highlighted="true"`)
-	assert.Contains(t, res.Body, `class="language-go z-code z-chroma"`)
-	assert.Contains(t, res.Body, `<span class="z-`)
-}
+	tests := []struct {
+		name           string
+		markdown       string
+		addTargetBlank bool
+		assertResult   func(t *testing.T, html string, err error)
+	}{
+		{
+			name:           "adds attrs for external links",
+			markdown:       "[ext](https://example.org) [internal](/x)",
+			addTargetBlank: true,
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.org"`)
+				assert.Contains(t, html, `target="_blank"`)
+				assert.Contains(t, html, `rel="noopener"`)
+				assert.Contains(t, html, `href="/x"`)
+			},
+		},
+		{
+			name:           "does not add attrs when disabled",
+			markdown:       "[ext](https://example.org)",
+			addTargetBlank: false,
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `href="https://example.org"`)
+				assert.NotContains(t, html, `target="_blank"`)
+				assert.NotContains(t, html, `rel="noopener"`)
+			},
+		},
+		{
+			name:           "keeps order for multiple externals",
+			markdown:       "[a](https://a.example) [b](https://b.example)",
+			addTargetBlank: true,
+			assertResult: func(t *testing.T, html string, err error) {
+				assert.NoError(t, err)
+				assert.True(t, strings.Index(html, `href="https://a.example"`) < strings.Index(html, `href="https://b.example"`))
+				assert.Equal(t, 2, strings.Count(html, `target="_blank"`))
+				assert.Equal(t, 2, strings.Count(html, `rel="noopener"`))
+			},
+		},
+	}
 
-func TestHighlightCSS_GeneratesPrefixedClasses(t *testing.T) {
-	t.Parallel()
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	css, err := HighlightCSS("github")
-	require.NoError(t, err)
-	assert.Contains(t, css, ".z-")
-}
-
-func TestRenderContent_ExternalLinksTargetBlankUsesASTAttributes(t *testing.T) {
-	t.Parallel()
-
-	res, err := RenderContent("[ext](https://example.org)", RenderContext{ExternalLinksTargetBlank: true})
-	require.NoError(t, err)
-	assert.Contains(t, res.Body, `href="https://example.org"`)
-	assert.Contains(t, res.Body, `target="_blank"`)
-	assert.Contains(t, res.Body, `rel="noopener"`)
-}
-
-func TestTransformInternalLinks_Rewrites(t *testing.T) {
-	t.Parallel()
-
-	doc, _ := parseDoc(t, "[internal](@/content/posts/hello.md#intro) ![img](@/content/posts/hello.md)")
-	ctx := RenderContext{Permalinks: map[string]string{"content/posts/hello.md": "https://example.com/posts/hello/"}}
-
-	err := transformInternalLinks(doc, ctx)
-	require.NoError(t, err)
-
-	link := firstLinkNode(t, doc)
-	img := firstImageNode(t, doc)
-	assert.Equal(t, "https://example.com/posts/hello/#intro", string(link.Destination))
-	assert.Equal(t, "https://example.com/posts/hello/", string(img.Destination))
-}
-
-func TestTransformInternalLinks_BrokenReturnsError(t *testing.T) {
-	t.Parallel()
-
-	doc, _ := parseDoc(t, "[broken](@/content/posts/missing.md)")
-	err := transformInternalLinks(doc, RenderContext{Permalinks: map[string]string{}})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "broken relative link")
-}
-
-func TestTransformExternalLinks_CollectsAndAppliesAttrs(t *testing.T) {
-	t.Parallel()
-
-	doc, _ := parseDoc(t, "[ext](https://example.org)")
-	links := transformExternalLinks(doc, true)
-	assert.Equal(t, []string{"https://example.org"}, links)
-
-	link := firstLinkNode(t, doc)
-	target, hasTarget := link.AttributeString("target")
-	rel, hasRel := link.AttributeString("rel")
-	assert.True(t, hasTarget)
-	assert.True(t, hasRel)
-	assert.Equal(t, "_blank", string(target.([]byte)))
-	assert.Equal(t, "noopener", string(rel.([]byte)))
+			doc, source := parseDoc(t, tc.markdown)
+			_ = transformExternalLinks(doc, tc.addTargetBlank)
+			html, err := renderDocHTML(t, doc, source)
+			tc.assertResult(t, html, err)
+		})
+	}
 }
