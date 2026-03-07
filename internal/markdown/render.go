@@ -24,7 +24,6 @@ import (
 const continueReadingHTML = `<span id="continue-reading"></span>`
 
 var moreDividerRe = regexp.MustCompile(`(?is)<!--\s*more\s*-->`)
-var headingRe = regexp.MustCompile(`(?s)<h([1-6]) id="([^"]+)">(.*?)</h[1-6]>`)
 var continueReadingParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(continueReadingHTML) + `\s*</p>`)
 var fencedCodeLangRe = regexp.MustCompile(`<pre><code class="language-([^"]+)">`)
 var highlightedCodeBlockRe = regexp.MustCompile(`(?s)<pre data-lang="([^"]+)" class="language-[^"]*">\s*<code class="language-[^"]*" data-lang="[^"]*">(.*?)</code>\s*</pre>`)
@@ -64,7 +63,7 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	pc := parser.NewContext()
 	doc := md.Parser().Parse(text.NewReader(source), parser.WithContext(pc))
 
-	applyHeadingIDs(doc, source)
+	transformHeadings(doc, source, ctx.InsertAnchorLinks)
 
 	externalLinks := transformExternalLinks(doc, ctx.ExternalLinksTargetBlank)
 	if err := transformInternalLinks(doc, ctx); err != nil {
@@ -82,9 +81,6 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	if strings.TrimSpace(ctx.HighlightTheme) != "" {
 		body = applySyntaxHighlight(body, ctx.HighlightTheme)
 	}
-	if ctx.InsertAnchorLinks {
-		body = insertAnchorLinks(body)
-	}
 	summary := extractSummary(content, ctx, md)
 
 	toc := collectTOC(doc, source)
@@ -97,7 +93,7 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	}, nil
 }
 
-func applyHeadingIDs(doc ast.Node, source []byte) {
+func transformHeadings(doc ast.Node, source []byte, insertAnchors bool) {
 	headingIDCounts := map[string]int{}
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -117,6 +113,14 @@ func applyHeadingIDs(doc ast.Node, source []byte) {
 			headingIDCounts[id] = 1
 		}
 		h.SetAttributeString("id", []byte(id))
+		if insertAnchors {
+			anchor := ast.NewLink()
+			anchor.Destination = []byte("#" + id)
+			anchor.SetAttributeString("class", []byte("zola-anchor"))
+			anchor.SetAttributeString("aria-label", []byte("Anchor link for: "+text))
+			anchor.AppendChild(anchor, ast.NewString([]byte("🔗")))
+			h.AppendChild(h, anchor)
+		}
 		return ast.WalkContinue, nil
 	})
 }
@@ -235,21 +239,6 @@ func collectTOC(doc ast.Node, source []byte) []Heading {
 		return ast.WalkContinue, nil
 	})
 	return toc
-}
-
-func insertAnchorLinks(htmlIn string) string {
-	return headingRe.ReplaceAllStringFunc(htmlIn, func(m string) string {
-		sub := headingRe.FindStringSubmatch(m)
-		if len(sub) != 4 {
-			return m
-		}
-		level := sub[1]
-		id := sub[2]
-		inner := sub[3]
-		label := strings.ToLower(id)
-		anchor := `<a class="zola-anchor" href="#` + id + `" aria-label="Anchor link for: ` + label + `">🔗</a>`
-		return `<h` + level + ` id="` + id + `">` + inner + anchor + `</h` + level + `>`
-	})
 }
 
 func nodePlainText(n ast.Node, source []byte) string {
