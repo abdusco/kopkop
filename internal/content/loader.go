@@ -20,54 +20,84 @@ type LoadOptions struct {
 	RenderMarkdown bool
 }
 
+type contentFile struct {
+	AbsPath   string
+	RelPath   string
+	IsSection bool
+}
+
+type loadedContent struct {
+	File    contentFile
+	Page    *Page
+	Section *Section
+}
+
 func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library, error) {
 	lib := NewLibrary()
 	contentDir := filepath.Join(basePath, "content")
+	draftsEnabled := opts.IncludeDrafts || cfg.EnableDraftsInBuild
 
-	err := filepath.WalkDir(contentDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if filepath.Ext(path) != ".md" {
-			return nil
-		}
+	files, err := collectContentFiles(contentDir)
+	if err != nil {
+		return nil, err
+	}
 
-		rel, err := filepath.Rel(contentDir, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if shouldIgnoreContent(rel, cfg.IgnoredContent) {
-			return nil
+	files = lo.Filter(files, func(file contentFile, _ int) bool {
+		return !shouldIgnoreContent(file.RelPath, cfg.IgnoredContent)
+	})
+
+	loaded := make([]loadedContent, 0, len(files))
+	for _, file := range files {
+		raw, readErr := os.ReadFile(file.AbsPath)
+		if readErr != nil {
+			return nil, readErr
 		}
 
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		name := filepath.Base(path)
-		if strings.HasPrefix(name, "_index") {
-			sec, loadErr := parseSection(path, rel, string(raw), cfg)
+		if file.IsSection {
+			sec, loadErr := parseSection(file.AbsPath, file.RelPath, string(raw), cfg)
 			if loadErr != nil {
-				return loadErr
+				return nil, loadErr
 			}
-			lib.Sections[rel] = sec
-			lib.Permalinks[rel] = sec.Permalink
-			return nil
+			loaded = append(loaded, loadedContent{File: file, Section: sec})
+			continue
 		}
 
-		page, loadErr := parsePage(path, rel, string(raw), cfg)
+		page, loadErr := parsePage(file.AbsPath, file.RelPath, string(raw), cfg)
 		if loadErr != nil {
-			return loadErr
+			return nil, loadErr
 		}
-		if page.Meta.Draft && !opts.IncludeDrafts && !cfg.EnableDraftsInBuild {
-			return nil
+		if page.Meta.Draft && !draftsEnabled {
+			continue
 		}
-		if opts.RenderMarkdown {
+
+		loaded = append(loaded, loadedContent{File: file, Page: page})
+	}
+
+	if !draftsEnabled {
+		loaded = filterDraftContent(loaded)
+	}
+
+	for _, item := range loaded {
+		if item.Section == nil {
+			continue
+		}
+		lib.Sections[item.File.RelPath] = item.Section
+		lib.Permalinks[item.File.RelPath] = item.Section.Permalink
+	}
+	for _, item := range loaded {
+		if item.Page == nil {
+			continue
+		}
+		lib.Pages[item.File.RelPath] = item.Page
+		lib.Permalinks[item.File.RelPath] = item.Page.Permalink
+	}
+
+	if opts.RenderMarkdown {
+		for _, item := range loaded {
+			if item.Page == nil {
+				continue
+			}
+			page := item.Page
 			res, renderErr := markdown.RenderContent(page.RawContent, markdown.RenderContext{
 				Permalinks:           lib.Permalinks,
 				CurrentPagePath:      page.RelativePath,
@@ -86,23 +116,85 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 				page.ExternalLinks = append(page.ExternalLinks, res.ExternalLinks...)
 			}
 		}
-
-		lib.Pages[rel] = page
-		lib.Permalinks[rel] = page.Permalink
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if !opts.IncludeDrafts && !cfg.EnableDraftsInBuild {
-		filterDraftSections(lib)
 	}
 
 	attachPagesToSections(lib)
 	attachSubsections(lib)
 	buildTaxonomies(lib, cfg)
 	return lib, nil
+}
+
+func filterDraftContent(items []loadedContent) []loadedContent {
+	hiddenPrefixes := lo.Uniq(lo.Map(
+		lo.Filter(items, func(item loadedContent, _ int) bool {
+			return item.Section != nil && item.Section.Meta.Draft
+		}),
+		func(item loadedContent, _ int) string {
+			dir := filepath.ToSlash(filepath.Dir(item.File.RelPath))
+			if dir == "." {
+				dir = ""
+			}
+			return dir
+		},
+	))
+
+	return lo.Filter(items, func(item loadedContent, _ int) bool {
+		if item.Page != nil && item.Page.Meta.Draft {
+			return false
+		}
+		if item.Section != nil && item.Section.Meta.Draft {
+			return false
+		}
+		if len(hiddenPrefixes) == 0 {
+			return true
+		}
+
+		dir := filepath.ToSlash(filepath.Dir(item.File.RelPath))
+		if dir == "." {
+			dir = ""
+		}
+
+		return !lo.SomeBy(hiddenPrefixes, func(prefix string) bool {
+			return prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/")
+		})
+	})
+}
+
+func collectContentFiles(contentDir string) ([]contentFile, error) {
+	files := []contentFile{}
+	err := filepath.WalkDir(contentDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) != ".md" {
+			return nil
+		}
+
+		rel, relErr := filepath.Rel(contentDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+
+		files = append(files, contentFile{
+			AbsPath:   path,
+			RelPath:   rel,
+			IsSection: strings.HasPrefix(filepath.Base(path), "_index"),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(files, func(i, j int) bool {
+		return files[i].RelPath < files[j].RelPath
+	})
+
+	return files, nil
 }
 
 func shouldIgnoreContent(rel string, patterns []string) bool {
@@ -201,15 +293,15 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 	permalink := pathing.MakePermalink(cfg.BaseURL, p)
 
 	return &Section{
-		SourcePath:  absPath,
+		SourcePath:   absPath,
 		RelativePath: relPath,
-		Meta:        meta,
-		RawContent:  body,
-		Path:        p,
-		Permalink:   permalink,
-		Components:  splitComponents(strings.Trim(p, "/")),
-		Pages:       []string{},
-		Subsections: []string{},
+		Meta:         meta,
+		RawContent:   body,
+		Path:         p,
+		Permalink:    permalink,
+		Components:   splitComponents(strings.Trim(p, "/")),
+		Pages:        []string{},
+		Subsections:  []string{},
 	}, nil
 }
 
