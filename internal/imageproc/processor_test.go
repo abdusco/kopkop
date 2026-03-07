@@ -1,6 +1,7 @@
 package imageproc
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -41,4 +42,58 @@ func TestMetadataAndResize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, url, "/processed_images/")
 	require.FileExists(t, filepath.Join(out, filepath.FromSlash(url[1:])))
+}
+
+func TestResizeWithBackends_FallsThroughOnError(t *testing.T) {
+	called := make([]string, 0, 3)
+	backends := []resizeBackend{
+		{
+			name: "vips",
+			run: func(params ResizeParams) error {
+				called = append(called, "vips")
+				return errors.New("vips failed")
+			},
+		},
+		{
+			name: "magick",
+			run: func(params ResizeParams) error {
+				called = append(called, "magick")
+				return errors.New("magick failed")
+			},
+		},
+		{
+			name: "go",
+			run: func(params ResizeParams) error {
+				called = append(called, "go")
+				return nil
+			},
+		},
+	}
+
+	err := resizeWithBackends(backends, ResizeParams{Width: 10, Height: 5})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"vips", "magick", "go"}, called)
+}
+
+func TestResizeWithBackends_ReturnsCombinedErrorWhenAllFail(t *testing.T) {
+	backends := []resizeBackend{
+		{
+			name: "vips",
+			run: func(params ResizeParams) error {
+				return errors.New("boom1")
+			},
+		},
+		{
+			name: "magick",
+			run: func(params ResizeParams) error {
+				return errors.New("boom2")
+			},
+		},
+	}
+
+	err := resizeWithBackends(backends, ResizeParams{Width: 10, Height: 5})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all resize backends failed")
+	assert.Contains(t, err.Error(), "vips: boom1")
+	assert.Contains(t, err.Error(), "magick: boom2")
 }
