@@ -56,6 +56,9 @@ type Site struct {
 	OutputPath    string
 	BuildMode     BuildMode
 	MemoryContent map[string]string
+
+	highlightCSSPath    string
+	highlightCSSWritten bool
 }
 
 var htmlMinifier = func() *minify.M {
@@ -106,6 +109,12 @@ func (s *Site) Load(includeDrafts bool) error {
 }
 
 func (s *Site) Build(opts BuildOptions) error {
+	s.highlightCSSPath = ""
+	s.highlightCSSWritten = false
+	if strings.TrimSpace(s.Config.Markdown.HighlightTheme) != "" {
+		s.highlightCSSPath = highlightStylesheetFilename(s.Config.Markdown.HighlightTheme)
+	}
+
 	if opts.BaseURL != "" {
 		s.Config.BaseURL = opts.BaseURL
 	}
@@ -403,7 +412,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		CurrentPagePermalink:     pg.Permalink,
 		InsertAnchorLinks:        s.pageAnchorLinksEnabled(pg),
 		ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
-		HighlightCode:            s.Config.Markdown.HighlightCode,
+		HighlightTheme:           s.Config.Markdown.HighlightTheme,
 	})
 	if err != nil {
 		return markdown.Rendered{}, err
@@ -452,7 +461,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			CurrentPagePermalink:     sec.Permalink,
 			InsertAnchorLinks:        s.sectionAnchorLinksEnabled(sec),
 			ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
-			HighlightCode:            s.Config.Markdown.HighlightCode,
+			HighlightTheme:           s.Config.Markdown.HighlightTheme,
 		})
 		if secErr == nil {
 			sec.Content = renderedSection.Body
@@ -1415,13 +1424,21 @@ func (s *Site) writeOutput(rel string, content string) error {
 		return fmt.Errorf("invalid output path %q", rel)
 	}
 	rel = strings.TrimPrefix(rel, "/")
+	lowerRel := strings.ToLower(rel)
 
-	if s.Config.MinifyHTML && strings.HasSuffix(strings.ToLower(rel), ".html") {
+	if strings.HasSuffix(lowerRel, ".html") {
+		var err error
+		content, err = s.injectHighlightStylesheetIfNeeded(rel, content)
+		if err != nil {
+			return err
+		}
+	}
+
+	if s.Config.MinifyHTML && strings.HasSuffix(lowerRel, ".html") {
 		content = minifyHTML(content)
 	}
 	content = strings.ReplaceAll(content, "&#x2f;", "&#x2F;")
 
-	lowerRel := strings.ToLower(rel)
 	if strings.HasSuffix(lowerRel, ".html") || strings.HasSuffix(lowerRel, ".xml") || strings.HasSuffix(lowerRel, ".txt") || strings.HasSuffix(lowerRel, ".css") || strings.HasSuffix(lowerRel, ".js") {
 		if content != "" && !strings.HasSuffix(content, "\n") {
 			content += "\n"
@@ -1441,6 +1458,87 @@ func (s *Site) writeOutput(rel string, content string) error {
 		}
 	}
 	return nil
+}
+
+func (s *Site) injectHighlightStylesheetIfNeeded(rel string, content string) (string, error) {
+	if s.highlightCSSPath == "" {
+		return content, nil
+	}
+	if !strings.Contains(content, `data-highlighted="true"`) {
+		return content, nil
+	}
+	href := relativeAssetHref(s.highlightCSSPath)
+	updated := injectStylesheetIntoHead(content, href)
+	if updated == content {
+		return content, nil
+	}
+	if err := s.ensureHighlightStylesheet(); err != nil {
+		return "", err
+	}
+	return updated, nil
+}
+
+func (s *Site) ensureHighlightStylesheet() error {
+	if s.highlightCSSWritten || s.highlightCSSPath == "" {
+		return nil
+	}
+	css, err := markdown.HighlightCSS(s.Config.Markdown.HighlightTheme)
+	if err != nil {
+		return err
+	}
+	s.highlightCSSWritten = true
+	return s.writeOutput(s.highlightCSSPath, css)
+}
+
+func highlightStylesheetFilename(theme string) string {
+	theme = strings.TrimSpace(strings.ToLower(theme))
+	if theme == "" {
+		theme = "highlight"
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range theme {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if r == '-' || r == '_' {
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		out = "highlight"
+	}
+	return "code-" + out + ".css"
+}
+
+func relativeAssetHref(assetRel string) string {
+	assetRel = filepath.ToSlash(strings.TrimPrefix(assetRel, "/"))
+	if assetRel == "" {
+		return "/"
+	}
+	return "/" + assetRel
+}
+
+func injectStylesheetIntoHead(html string, href string) string {
+	if href == "" {
+		return html
+	}
+	if strings.Contains(html, `href="`+href+`"`) {
+		return html
+	}
+	lower := strings.ToLower(html)
+	idx := strings.Index(lower, "</head>")
+	if idx == -1 {
+		return html
+	}
+	link := `<link rel="stylesheet" href="` + href + `">`
+	return html[:idx] + link + html[idx:]
 }
 
 func minifyHTML(in string) string {

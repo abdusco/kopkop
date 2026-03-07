@@ -27,15 +27,15 @@ type LinkChecker struct {
 }
 
 type Markdown struct {
-	InsertAnchorLinks        bool `toml:"insert_anchor_links"`
-	ExternalLinksTargetBlank bool `toml:"external_links_target_blank"`
-	HighlightCode            bool `toml:"highlight_code"`
+	InsertAnchorLinks        bool   `toml:"insert_anchor_links"`
+	ExternalLinksTargetBlank bool   `toml:"external_links_target_blank"`
+	HighlightTheme           string `toml:"highlight_theme"`
 }
 
 func (m *Markdown) UnmarshalTOML(v any) error {
 	m.InsertAnchorLinks = false
 	m.ExternalLinksTargetBlank = false
-	m.HighlightCode = false
+	m.HighlightTheme = ""
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return nil
@@ -67,16 +67,18 @@ func (m *Markdown) UnmarshalTOML(v any) error {
 			return fmt.Errorf("markdown.external_links_target_blank has unsupported type %T", raw)
 		}
 	}
-	if raw, exists := obj["highlight_code"]; exists {
-		switch val := raw.(type) {
-		case bool:
-			m.HighlightCode = val
-		case string:
-			s := strings.ToLower(strings.TrimSpace(val))
-			m.HighlightCode = s == "true" || s == "1" || s == "yes" || s == "on"
-		default:
-			return fmt.Errorf("markdown.highlight_code has unsupported type %T", raw)
+	if _, exists := obj["highlight_code"]; exists {
+		return errors.New("markdown.highlight_code is no longer supported; use markdown.highlight_theme = \"...\"")
+	}
+	if _, exists := obj["highlighting"]; exists {
+		return errors.New("markdown.highlighting is no longer supported; use markdown.highlight_theme = \"...\"")
+	}
+	if raw, exists := obj["highlight_theme"]; exists {
+		theme, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("markdown.highlight_theme has unsupported type %T", raw)
 		}
+		m.HighlightTheme = strings.TrimSpace(theme)
 	}
 
 	return nil
@@ -93,35 +95,35 @@ type TaxonomyConfig struct {
 }
 
 type Config struct {
-	BaseURL             string         `toml:"base_url"`
-	Title               string         `toml:"title"`
-	Description         string         `toml:"description"`
-	Author              string         `toml:"author"`
-	Extra               map[string]any `toml:"extra"`
-	Theme               string         `toml:"theme"`
-	OutputDir           string         `toml:"output_dir"`
-	LinkStrategy        string         `toml:"link_strategy"`
-	BuildSearchIndex    bool           `toml:"build_search_index"`
-	GenerateFeeds       bool                       `toml:"generate_feeds"`
-	FeedFilenames       []string                   `toml:"feed_filenames"`
-	GenerateSitemap     bool                       `toml:"generate_sitemap"`
-	GenerateRobotsTXT   bool                       `toml:"generate_robots_txt"`
-	MinifyHTML          bool                       `toml:"minify_html"`
-	Taxonomies          []TaxonomyConfig           `toml:"taxonomies"`
-	Markdown            Markdown                   `toml:"markdown"`
-	Search              Search                     `toml:"search"`
-	LinkChecker         LinkChecker                `toml:"link_checker"`
-	IgnoredContent      []string                   `toml:"ignored_content"`
-	ExtraWatchPaths     []string                   `toml:"extra_watch_paths"`
-	PathsKeepDates      bool                       `toml:"paths_keep_dates"`
-	EnableDraftsInBuild bool                       `toml:"enable_drafts_in_build"`
+	BaseURL             string           `toml:"base_url"`
+	Title               string           `toml:"title"`
+	Description         string           `toml:"description"`
+	Author              string           `toml:"author"`
+	Extra               map[string]any   `toml:"extra"`
+	Theme               string           `toml:"theme"`
+	OutputDir           string           `toml:"output_dir"`
+	LinkStrategy        string           `toml:"link_strategy"`
+	BuildSearchIndex    bool             `toml:"build_search_index"`
+	GenerateFeeds       bool             `toml:"generate_feeds"`
+	FeedFilenames       []string         `toml:"feed_filenames"`
+	GenerateSitemap     bool             `toml:"generate_sitemap"`
+	GenerateRobotsTXT   bool             `toml:"generate_robots_txt"`
+	MinifyHTML          bool             `toml:"minify_html"`
+	Taxonomies          []TaxonomyConfig `toml:"taxonomies"`
+	Markdown            Markdown         `toml:"markdown"`
+	Search              Search           `toml:"search"`
+	LinkChecker         LinkChecker      `toml:"link_checker"`
+	IgnoredContent      []string         `toml:"ignored_content"`
+	ExtraWatchPaths     []string         `toml:"extra_watch_paths"`
+	PathsKeepDates      bool             `toml:"paths_keep_dates"`
+	EnableDraftsInBuild bool             `toml:"enable_drafts_in_build"`
 }
 
 func Default() Config {
 	return Config{
-		BaseURL:      "http://127.0.0.1:1111",
-		OutputDir:    "public",
-		LinkStrategy: "absolute",
+		BaseURL:           "http://127.0.0.1:1111",
+		OutputDir:         "public",
+		LinkStrategy:      "absolute",
 		BuildSearchIndex:  false,
 		GenerateFeeds:     false,
 		FeedFilenames:     []string{"atom.xml"},
@@ -132,7 +134,7 @@ func Default() Config {
 		Markdown: Markdown{
 			InsertAnchorLinks:        false,
 			ExternalLinksTargetBlank: false,
-			HighlightCode:            false,
+			HighlightTheme:           "",
 		},
 		Search: Search{
 			BuildIndex: false,

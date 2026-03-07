@@ -152,10 +152,29 @@ func TestRenderContent_FencedCodeHasZolaLikeLanguageAttributes(t *testing.T) {
 func TestRenderContent_HighlightedCodeAddsZCodeSpans(t *testing.T) {
 	t.Parallel()
 
-	res, err := RenderContent("```go\npackage main\n```", RenderContext{HighlightCode: true})
+	res, err := RenderContent("```go\npackage main\n```", RenderContext{HighlightTheme: "github"})
 	require.NoError(t, err)
-	assert.Contains(t, res.Body, `class="language-go z-code"`)
+	assert.Contains(t, res.Body, `data-highlighted="true"`)
+	assert.Contains(t, res.Body, `class="language-go z-code z-chroma"`)
 	assert.Contains(t, res.Body, `<span class="z-`)
+}
+
+func TestRenderContent_HighlightedCodeFallbackForUnknownTheme(t *testing.T) {
+	t.Parallel()
+
+	res, err := RenderContent("```go\npackage main\n```", RenderContext{HighlightTheme: "missing-theme"})
+	require.NoError(t, err)
+	assert.Contains(t, res.Body, `data-highlighted="true"`)
+	assert.Contains(t, res.Body, `class="language-go z-code z-chroma"`)
+	assert.Contains(t, res.Body, `<span class="z-`)
+}
+
+func TestHighlightCSS_GeneratesPrefixedClasses(t *testing.T) {
+	t.Parallel()
+
+	css, err := HighlightCSS("github")
+	require.NoError(t, err)
+	assert.Contains(t, css, ".z-")
 }
 
 func TestRenderContent_ExternalLinksTargetBlankUsesASTAttributes(t *testing.T) {

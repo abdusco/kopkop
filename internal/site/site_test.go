@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -353,6 +354,85 @@ generate_robots_txt = false
 	require.NoError(t, err)
 }
 
+func TestSiteBuild_InjectsHighlightCSSOnlyWhenNeeded(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "posts"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+generate_sitemap = false
+generate_feeds = false
+build_search_index = false
+generate_robots_txt = false
+
+[markdown]
+highlight_theme = "github"
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\nNo code here"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "posts", "with-code.md"), []byte("+++\ntitle='With Code'\n+++\n```go\npackage main\n```"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "posts", "without-code.md"), []byte("+++\ntitle='Without Code'\n+++\nHello"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><head><title>{{ page.title }}</title></head><body>{{ page.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><head><title>{{ section.title }}</title></head><body>{{ section.content|safe }}</body></html>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	withCodeHTML, err := os.ReadFile(filepath.Join(root, "public", "posts", "with-code", "index.html"))
+	require.NoError(t, err)
+	withoutCodeHTML, err := os.ReadFile(filepath.Join(root, "public", "posts", "without-code", "index.html"))
+	require.NoError(t, err)
+
+	withCode := string(withCodeHTML)
+	withoutCode := string(withoutCodeHTML)
+	codeLink := "/code-github.css"
+	require.Contains(t, withCode, `href="`+codeLink+`"`)
+	require.NotContains(t, withoutCode, "code-github.css")
+
+	cssPath := filepath.Join(root, "public", "code-github.css")
+	css, err := os.ReadFile(cssPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, strings.TrimSpace(string(css)))
+}
+
+func TestSiteBuild_DoesNotInjectHighlightCSSWithoutHead(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+base_url = "https://example.com"
+title = "Demo"
+output_dir = "public"
+generate_sitemap = false
+generate_feeds = false
+build_search_index = false
+generate_robots_txt = false
+
+[markdown]
+highlight_theme = "github"
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n```go\npackage main\n```"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.content|safe }}</body></html>"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
+
+	s, err := New(root, filepath.Join(root, "zola.toml"))
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+
+	html, err := os.ReadFile(filepath.Join(root, "public", "index.html"))
+	require.NoError(t, err)
+	require.NotContains(t, string(html), "code-github.css")
+	_, statErr := os.Stat(filepath.Join(root, "public", "code-github.css"))
+	require.Error(t, statErr)
+}
 
 func collectFiles(t *testing.T, root string) []string {
 	t.Helper()

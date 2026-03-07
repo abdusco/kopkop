@@ -48,7 +48,7 @@ func TestDiscoverConfigPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(root, "zola.toml"), cfg)
 }
 
-func TestFromFile_MarkdownBooleanAndStringOptions(t *testing.T) {
+func TestFromFile_MarkdownOptions(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -59,14 +59,48 @@ base_url = "https://example.com"
 [markdown]
 insert_anchor_links = "right"
 external_links_target_blank = true
-highlight_code = true
+highlight_theme = "catppuccin-macchiato"
 `), 0o644))
 
 	cfg, err := FromFile(configPath)
 	require.NoError(t, err)
 	assert.True(t, cfg.Markdown.InsertAnchorLinks)
 	assert.True(t, cfg.Markdown.ExternalLinksTargetBlank)
-	assert.True(t, cfg.Markdown.HighlightCode)
+	assert.Equal(t, "catppuccin-macchiato", cfg.Markdown.HighlightTheme)
+}
+
+func TestFromFile_MarkdownHighlightCodeRemoved(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "zola.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+base_url = "https://example.com"
+
+[markdown]
+highlight_code = true
+`), 0o644))
+
+	_, err := FromFile(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "markdown.highlight_code is no longer supported")
+}
+
+func TestFromFile_MarkdownHighlightingTableRemoved(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "zola.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+base_url = "https://example.com"
+
+[markdown.highlighting]
+theme = "github"
+`), 0o644))
+
+	_, err := FromFile(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "markdown.highlighting is no longer supported")
 }
 
 func TestConfigValidate_LinkStrategy(t *testing.T) {
@@ -86,4 +120,3 @@ func TestConfigValidate_LinkStrategy(t *testing.T) {
 	cfg.LinkStrategy = "weird"
 	require.Error(t, cfg.Validate())
 }
-

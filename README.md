@@ -160,7 +160,9 @@ enable_drafts_in_build = false
 [markdown]
 insert_anchor_links = false
 external_links_target_blank = false
-highlight_code = false
+# Any built-in Chroma style name:
+# https://github.com/alecthomas/chroma/tree/master/styles
+highlight_theme = "github"
 
 [search]
 build_index = false
@@ -412,7 +414,8 @@ To show a shortcode as literal text without rendering it, wrap with comment mark
 ## Markdown Features
 
 - **Heading anchors** — set `insert_anchor_links = true` in `[markdown]` to add `#` anchor links to headings
-- **Syntax highlighting** — set `highlight_code = true` to use Chroma-based highlighting with the GitHub theme; CSS classes are prefixed with `z-`
+- **Syntax highlighting** — set `highlight_theme` in `[markdown]` to a Chroma style name; CSS classes are prefixed with `z-`
+- **Highlight stylesheet output** — when highlighted code is present on a page, kopkop auto-generates `code-<theme>.css` and injects a `<link rel="stylesheet">` into that page's `<head>`
 - **External link behavior** — set `external_links_target_blank = true` to add `target="_blank" rel="noopener"` to external links
 - **Internal links** — use `@/path/to/page.md` syntax to link to content by path; broken links cause a build error
 - **Colocated assets** — relative links in content resolve against the page's permalink

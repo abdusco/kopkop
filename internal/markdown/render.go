@@ -47,7 +47,7 @@ type RenderContext struct {
 	CurrentPagePermalink     string
 	InsertAnchorLinks        bool
 	ExternalLinksTargetBlank bool
-	HighlightCode            bool
+	HighlightTheme           string
 }
 
 func RenderContent(content string, ctx RenderContext) (Rendered, error) {
@@ -78,8 +78,8 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	body := buf.String()
 	body = continueReadingParagraphRe.ReplaceAllString(body, continueReadingHTML)
 	body = fencedCodeLangRe.ReplaceAllString(body, `<pre data-lang="$1" class="language-$1 "><code class="language-$1" data-lang="$1">`)
-	if ctx.HighlightCode {
-		body = applySyntaxHighlight(body)
+	if strings.TrimSpace(ctx.HighlightTheme) != "" {
+		body = applySyntaxHighlight(body, ctx.HighlightTheme)
 	}
 	if ctx.InsertAnchorLinks {
 		body = insertAnchorLinks(body)
@@ -297,13 +297,16 @@ func slugifyHeadingID(s string) string {
 	return out
 }
 
-func applySyntaxHighlight(htmlIn string) string {
+func applySyntaxHighlight(htmlIn string, themeName string) string {
 	formatter := chromahtml.New(
 		chromahtml.WithClasses(true),
 		chromahtml.ClassPrefix("z-"),
 		chromahtml.PreventSurroundingPre(true),
 	)
-	style := styles.Get("github")
+	style := styles.Get(strings.TrimSpace(themeName))
+	if style == nil {
+		style = styles.Get("github")
+	}
 	if style == nil {
 		style = styles.Fallback
 	}
@@ -334,8 +337,35 @@ func applySyntaxHighlight(htmlIn string) string {
 			return block
 		}
 		highlighted := strings.TrimRight(out.String(), "\n")
-		return `<pre data-lang="` + lang + `" class="language-` + lang + ` z-code"><code class="language-` + lang + `" data-lang="` + lang + `">` + highlighted + `</code></pre>`
+		return `<pre data-lang="` + lang + `" data-highlighted="true" class="language-` + lang + ` z-code z-chroma"><code class="language-` + lang + `" data-lang="` + lang + `">` + highlighted + `</code></pre>`
 	})
+}
+
+func HighlightCSS(themeName string) (string, error) {
+	name := strings.TrimSpace(themeName)
+	if name == "" {
+		return "", fmt.Errorf("highlight theme must not be empty")
+	}
+	style := styles.Get(name)
+	if style == nil {
+		style = styles.Get("github")
+	}
+	if style == nil {
+		style = styles.Fallback
+	}
+	formatter := chromahtml.New(
+		chromahtml.WithClasses(true),
+		chromahtml.ClassPrefix("z-"),
+	)
+	var out bytes.Buffer
+	if err := formatter.WriteCSS(&out, style); err != nil {
+		return "", fmt.Errorf("write highlight css: %w", err)
+	}
+	css := strings.TrimSpace(out.String())
+	if css == "" {
+		return "", fmt.Errorf("highlight css is empty")
+	}
+	return css + "\n", nil
 }
 
 func extractSummary(content string, ctx RenderContext, md goldmark.Markdown) *string {

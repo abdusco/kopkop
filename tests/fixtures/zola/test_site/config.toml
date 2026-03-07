@@ -12,8 +12,8 @@ ignored_content = ["*/ignored.md"]
 
 author = "config@example.com (Config Author)"
 
-[markdown.highlighting]
-theme = "custom_gruvbox"
+[markdown]
+highlight_theme = "custom_gruvbox"
 extra_grammars = ["syntaxes/mylang.json"]
 extra_themes = ["highlight_themes/custom_gruvbox.json"]
 
