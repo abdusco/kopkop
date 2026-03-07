@@ -36,7 +36,6 @@ func TestParseFrontMatter_ValidFiles(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			content := readFixture(t, tc.fixture)
@@ -70,7 +69,6 @@ func TestSplitContent_DelimiterLikeBodyPreserved(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			content := readFixture(t, tc.fixture)

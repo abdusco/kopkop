@@ -21,7 +21,6 @@ func TestNormalize(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.in, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, Normalize(tc.in))

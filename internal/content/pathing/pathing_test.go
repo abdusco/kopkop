@@ -45,7 +45,6 @@ func TestComputePageSlug_Table(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			slug, date := ComputePageSlug(tc.metaSlug, tc.filePathForSlug, tc.keepDates)
@@ -88,7 +87,6 @@ func TestComputePagePath_Table(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := ComputePagePath(tc.metaPath, tc.slug, tc.components, tc.fileName, tc.hasColocatedPath)
@@ -127,7 +125,6 @@ func TestMakePermalink_Table(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := MakePermalink(tc.baseURL, tc.path)
