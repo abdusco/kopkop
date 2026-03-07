@@ -1,41 +1,15 @@
 package pathing
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/abdusco/kopkop/internal/slug"
 )
 
 var rfc3339DatePrefix = regexp.MustCompile(`^(?P<datetime>(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)(\.[0-9]+)?(Z|(\+|-)([01][0-9]|2[0-3]):([0-5][0-9])))?)(\s?(_|-)(?P<slug>.+$))?`)
-
-func slugifyPath(input string) string {
-	s := strings.TrimSpace(strings.ToLower(input))
-	s = strings.ReplaceAll(s, "_", "-")
-	s = strings.ReplaceAll(s, " ", "-")
-
-	var b strings.Builder
-	b.Grow(len(s))
-	lastDash := false
-	for _, r := range s {
-		isAlphaNum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-		if isAlphaNum {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if r == '-' {
-			if !lastDash {
-				b.WriteRune('-')
-				lastDash = true
-			}
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "index"
-	}
-	return out
-}
 
 func ExtractDateAndSlugFromFilename(input string) (date string, slug string, ok bool) {
 	matches := rfc3339DatePrefix.FindStringSubmatch(input)
@@ -53,19 +27,19 @@ func ExtractDateAndSlugFromFilename(input string) (date string, slug string, ok 
 	return date, slug, true
 }
 
-func ComputePageSlug(metaSlug string, filePathForSlug string, pathsKeepDates bool) (slug string, extractedDate string) {
+func ComputePageSlug(metaSlug string, filePathForSlug string, pathsKeepDates bool) (outSlug string, extractedDate string) {
 	if strings.TrimSpace(metaSlug) != "" {
-		return slugifyPath(metaSlug), ""
+		return cmp.Or(slug.Normalize(metaSlug), "index"), ""
 	}
 
 	if dt, datedSlug, ok := ExtractDateAndSlugFromFilename(filePathForSlug); ok {
 		extractedDate = dt
 		if datedSlug != "" && !pathsKeepDates {
-			return slugifyPath(datedSlug), extractedDate
+			return cmp.Or(slug.Normalize(datedSlug), "index"), extractedDate
 		}
 	}
 
-	return slugifyPath(filePathForSlug), extractedDate
+	return cmp.Or(slug.Normalize(filePathForSlug), "index"), extractedDate
 }
 
 func ComputePagePath(metaPath string, slug string, components []string, fileName string, hasColocatedPath bool) string {

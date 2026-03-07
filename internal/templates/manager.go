@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/abdusco/kopkop/internal/imageproc"
 	"github.com/abdusco/kopkop/internal/markdown"
+	"github.com/abdusco/kopkop/internal/slug"
 )
 
 var namedEndTagRe = regexp.MustCompile(`\{%(\s*end(?:macro|block))\s+[a-zA-Z0-9_]+\s*%\}`)
@@ -477,8 +479,9 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		}
 		kind, _ := kindVal.AsString()
 		term, _ := termVal.AsString()
-		slug := strings.ReplaceAll(strings.ToLower(term), " ", "-")
-		return value.FromString("/" + kind + "/" + slug + "/"), nil
+		kindSlug := cmp.Or(slug.Normalize(kind), "item")
+		termSlug := cmp.Or(slug.Normalize(term), "item")
+		return value.FromString("/" + kindSlug + "/" + termSlug + "/"), nil
 	})
 
 	env.AddFunction("load_data", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {

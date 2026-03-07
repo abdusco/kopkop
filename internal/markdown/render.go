@@ -2,13 +2,14 @@ package markdown
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	stdhtml "html"
 	"path"
 	"regexp"
 	"strings"
-	"unicode"
 
+	"github.com/abdusco/kopkop/internal/slug"
 	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -107,11 +108,8 @@ func applyHeadingIDs(doc ast.Node, source []byte) {
 			return ast.WalkContinue, nil
 		}
 
-		text := headingNodeText(h, source)
-		id := slugifyHeadingID(text)
-		if id == "" {
-			id = "section"
-		}
+		text := nodePlainText(h, source)
+		id := cmp.Or(slugifyHeadingID(text), "section")
 		if count, exists := headingIDCounts[id]; exists {
 			headingIDCounts[id] = count + 1
 			id = fmt.Sprintf("%s-%d", id, count)
@@ -254,10 +252,6 @@ func insertAnchorLinks(htmlIn string) string {
 	})
 }
 
-func headingNodeText(h *ast.Heading, source []byte) string {
-	return nodePlainText(h, source)
-}
-
 func nodePlainText(n ast.Node, source []byte) string {
 	var b strings.Builder
 	_ = ast.Walk(n, func(curr ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -276,25 +270,7 @@ func nodePlainText(n ast.Node, source []byte) string {
 }
 
 func slugifyHeadingID(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" {
-		return ""
-	}
-	var b strings.Builder
-	lastHyphen := false
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-			lastHyphen = false
-			continue
-		}
-		if !lastHyphen {
-			b.WriteByte('-')
-			lastHyphen = true
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	return out
+	return slug.Normalize(s)
 }
 
 func applySyntaxHighlight(htmlIn string, themeName string) string {

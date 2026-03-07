@@ -2,6 +2,7 @@ package site
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/abdusco/kopkop/internal/assets"
 	"github.com/abdusco/kopkop/internal/config"
@@ -21,6 +21,7 @@ import (
 	"github.com/abdusco/kopkop/internal/markdown"
 	"github.com/abdusco/kopkop/internal/markdown/shortcode"
 	"github.com/abdusco/kopkop/internal/search"
+	"github.com/abdusco/kopkop/internal/slug"
 	"github.com/abdusco/kopkop/internal/templates"
 	"github.com/samber/lo"
 	"github.com/sourcegraph/conc/pool"
@@ -819,10 +820,11 @@ func sectionPagerPermalink(sectionPath, sectionPermalink, paginatePath string, i
 
 func (s *Site) renderTaxonomies(liveReloadURL string) error {
 	for _, tax := range s.Library.Taxonomies {
-		taxListPath := "/" + slugifyURLSegment(tax.Name) + "/"
+		taxNameSlug := cmp.Or(slug.Normalize(tax.Name), "item")
+		taxListPath := "/" + taxNameSlug + "/"
 		termItems := make([]map[string]any, 0, len(tax.Terms))
 		for termName, term := range tax.Terms {
-			pathSlug := slugifyURLSegment(termName)
+			pathSlug := cmp.Or(slug.Normalize(termName), "item")
 			taxPath := taxListPath + pathSlug + "/"
 			entries := make([]map[string]any, 0, len(term.Pages))
 			for _, rel := range term.Pages {
@@ -852,7 +854,7 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 		ctxList["terms"] = termItems
 		listHTML, listErr := s.renderFirstTemplate([]string{
 			tax.Name + "/list.html",
-			slugifyURLSegment(tax.Name) + "/list.html",
+			taxNameSlug + "/list.html",
 			"taxonomy_list.html",
 		}, ctxList)
 		if listErr != nil {
@@ -876,7 +878,7 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 		}
 
 		for termName, term := range tax.Terms {
-			pathSlug := slugifyURLSegment(termName)
+			pathSlug := cmp.Or(slug.Normalize(termName), "item")
 			taxPath := taxListPath + pathSlug + "/"
 			entries := make([]map[string]any, 0, len(term.Pages))
 			for _, rel := range term.Pages {
@@ -894,7 +896,7 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 			ctx["term"] = termObj
 			html, err := s.renderFirstTemplate([]string{
 				tax.Name + "/single.html",
-				slugifyURLSegment(tax.Name) + "/single.html",
+				taxNameSlug + "/single.html",
 				"taxonomy_single.html",
 			}, ctx)
 			if err != nil {
@@ -1125,11 +1127,11 @@ func (s *Site) defaultSitemapXML() string {
 		}
 	}
 	for _, tx := range s.Library.Taxonomies {
-		taxListPath := "/" + slugifyURLSegment(tx.Name) + "/"
+		taxListPath := "/" + cmp.Or(slug.Normalize(tx.Name), "item") + "/"
 		urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxListPath] = struct{}{}
 		for termName := range tx.Terms {
-			slug := slugifyURLSegment(termName)
-			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxListPath+slug+"/"] = struct{}{}
+			termSlug := cmp.Or(slug.Normalize(termName), "item")
+			urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+taxListPath+termSlug+"/"] = struct{}{}
 		}
 	}
 
@@ -1294,32 +1296,6 @@ func (s *Site) taxonomyFeedEnabled(name string) bool {
 		}
 	}
 	return false
-}
-
-func slugifyURLSegment(in string) string {
-	in = strings.TrimSpace(strings.ToLower(in))
-	if in == "" {
-		return ""
-	}
-	var b strings.Builder
-	prevDash := false
-	for _, r := range in {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(r)
-			prevDash = false
-		case r == '_' || r == '-' || unicode.IsSpace(r):
-			if !prevDash {
-				b.WriteByte('-')
-				prevDash = true
-			}
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "item"
-	}
-	return out
 }
 
 func (s *Site) render404(liveReloadURL string) error {

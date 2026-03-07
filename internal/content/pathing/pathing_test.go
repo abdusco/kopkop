@@ -39,7 +39,7 @@ func TestComputePageSlug_Table(t *testing.T) {
 			name:            "dated filename keeps full filename when keep dates enabled",
 			filePathForSlug: "2002-10-02T15:00:00Z-my-post",
 			keepDates:       true,
-			wantSlug:        "2002-10-02t150000z-my-post",
+			wantSlug:        "2002-10-02t15-00-00z-my-post",
 			wantDate:        "2002-10-02T15:00:00Z",
 		},
 	}
