@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -27,6 +28,7 @@ import (
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
 
+	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/abdusco/kopkop/internal/imageproc"
 	"github.com/abdusco/kopkop/internal/markdown"
 	"github.com/abdusco/kopkop/internal/slug"
@@ -135,9 +137,15 @@ type Manager struct {
 	Engine    *Engine
 	Resolver  Resolver
 	Available map[string]struct{}
+	SourceFS  filesystem.FileSystem
+	OutputFS  filesystem.FileSystem
 }
 
 func LoadManager(basePath string, theme string) (*Manager, error) {
+	return LoadManagerFS(filesystem.NewDiskFS(basePath), filesystem.NewDiskFS(filepath.Join(basePath, "public")), theme)
+}
+
+func LoadManagerFS(sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem, theme string) (*Manager, error) {
 	eng := NewEngine()
 	eng.EnableRelativeTemplateResolution()
 
@@ -145,67 +153,66 @@ func LoadManager(basePath string, theme string) (*Manager, error) {
 		Engine:    eng,
 		Resolver:  NewResolver(theme),
 		Available: map[string]struct{}{},
+		SourceFS:  sourceFS,
+		OutputFS:  outputFS,
 	}
 
-	if err := mgr.loadTemplatesFrom(filepath.Join(basePath, "templates"), ""); err != nil {
+	if err := mgr.loadTemplatesFrom(path.Join("templates"), ""); err != nil {
 		return nil, err
 	}
 	if theme != "" {
-		themeRoot := filepath.Join(basePath, "themes", theme, "templates")
-		if _, err := os.Stat(themeRoot); err == nil {
+		themeRoot := path.Join("themes", theme, "templates")
+		if _, err := fs.Stat(sourceFS, themeRoot); err == nil {
 			if err := mgr.loadTemplatesFrom(themeRoot, fmt.Sprintf("%s/templates", theme)); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	for n, s := range BuiltinTemplates() {
-		if err := mgr.Engine.AddTemplate(n, s); err != nil {
+	for name, content := range BuiltinTemplates() {
+		if err := mgr.Engine.AddTemplate(name, content); err != nil {
 			return nil, err
 		}
-		mgr.Available[n] = struct{}{}
+		mgr.Available[name] = struct{}{}
 	}
 
-	mgr.ConfigureHelpers(basePath, filepath.Join(basePath, "public"))
+	mgr.ConfigureHelpers()
 	return mgr, nil
 }
 
-func (m *Manager) ConfigureHelpers(basePath string, outputPath string) {
-	registerDefaultHelpers(m.Engine.Env(), basePath, outputPath)
+func (m *Manager) ConfigureHelpers() {
+	registerDefaultHelpers(m.Engine.Env(), m.SourceFS, m.OutputFS)
 }
 
 func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
-	if _, err := os.Stat(root); err != nil {
+	if _, err := fs.Stat(m.SourceFS, root); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
 
-	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(m.SourceFS, root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		ext := strings.ToLower(filepath.Ext(p))
+		ext := strings.ToLower(path.Ext(p))
 		switch ext {
 		case ".html", ".xml", ".txt", ".md", ".json", ".ics":
 		default:
 			return nil
 		}
 
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return err
-		}
-		name := filepath.ToSlash(rel)
+		rel := strings.TrimPrefix(strings.TrimPrefix(p, root), "/")
+		name := rel
 		if prefix != "" {
 			name = prefix + "/" + name
 		}
 
-		b, err := os.ReadFile(p)
+		b, err := fs.ReadFile(m.SourceFS, p)
 		if err != nil {
 			return err
 		}
@@ -215,8 +222,8 @@ func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
 		}
 		m.Available[name] = struct{}{}
 
-		if prefix != "" && !strings.HasPrefix(filepath.ToSlash(rel), "shortcodes/") {
-			alias := filepath.ToSlash(rel)
+		if prefix != "" && !strings.HasPrefix(rel, "shortcodes/") {
+			alias := rel
 			if _, exists := m.Available[alias]; !exists {
 				if err := m.Engine.AddTemplate(alias, source); err != nil {
 					return fmt.Errorf("parse template %q: %w", alias, err)
@@ -225,7 +232,7 @@ func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
 			}
 		}
 
-		if filepath.Base(p) == "robots.txt" {
+		if path.Base(p) == "robots.txt" {
 			if err := m.Engine.AddTemplate("robots.txt", source); err != nil {
 				return err
 			}
@@ -287,8 +294,8 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 	return defs
 }
 
-func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputPath string) {
-	img := imageproc.New(basePath, outputPath)
+func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem) {
+	img := imageproc.New(sourceFS, outputFS)
 	env.AddFunction("now", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		return value.FromString(time.Now().UTC().Format(time.RFC3339)), nil
 	})
@@ -373,16 +380,12 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		}
 		if cachebust {
 			local := strings.TrimPrefix(p, "/")
-			candidates := []string{
-				filepath.Join(outputPath, local),
-				filepath.Join(basePath, "static", local),
-			}
-			for _, candidate := range candidates {
-				if b, err := os.ReadFile(candidate); err == nil {
-					h := sha256.Sum256(b)
-					p = p + "?h=" + fmt.Sprintf("%x", h[:10])
-					break
-				}
+			if b, err := outputFS.ReadFile(filepath.ToSlash(local)); err == nil {
+				h := sha256.Sum256(b)
+				p = p + "?h=" + fmt.Sprintf("%x", h[:10])
+			} else if b, err := fs.ReadFile(sourceFS, path.Join("static", filepath.ToSlash(local))); err == nil {
+				h := sha256.Sum256(b)
+				p = p + "?h=" + fmt.Sprintf("%x", h[:10])
 			}
 		}
 		if absolute && baseURL != "" {
@@ -492,13 +495,13 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 		if !ok {
 			return value.Undefined(), fmt.Errorf("load_data path must be string")
 		}
-		abs := filepath.Join(basePath, p)
-		b, err := os.ReadFile(abs)
+		resolved := strings.TrimPrefix(path.Clean(strings.ReplaceAll(p, "\\", "/")), "/")
+		b, err := fs.ReadFile(sourceFS, resolved)
 		if err != nil {
 			return value.Undefined(), err
 		}
 
-		format := strings.TrimPrefix(strings.ToLower(filepath.Ext(abs)), ".")
+		format := strings.TrimPrefix(strings.ToLower(path.Ext(resolved)), ".")
 		if fmtVal, ok := kwargs["format"]; ok {
 			if s, ok := fmtVal.AsString(); ok {
 				format = s
@@ -636,17 +639,12 @@ func registerDefaultHelpers(env *minijinja.Environment, basePath string, outputP
 			return value.Undefined(), fmt.Errorf("get_hash expects content or file path")
 		}
 		data := []byte(raw)
-		candidates := []string{
-			filepath.Join(basePath, raw),
-			filepath.Join(basePath, "static", strings.TrimPrefix(raw, "/")),
-		}
-		for _, candidate := range candidates {
-			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-				if b, readErr := os.ReadFile(candidate); readErr == nil {
-					data = b
-					break
-				}
-			}
+
+		rawPath := strings.TrimPrefix(path.Clean(strings.ReplaceAll(raw, "\\", "/")), "/")
+		if b, err := fs.ReadFile(sourceFS, rawPath); err == nil {
+			data = b
+		} else if b, err := fs.ReadFile(sourceFS, path.Join("static", strings.TrimPrefix(rawPath, "static/"))); err == nil {
+			data = b
 		}
 		sum := sha512.Sum384(data)
 		if base64Out {

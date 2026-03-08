@@ -1,6 +1,7 @@
 package imageproc
 
 import (
+	"bytes"
 	"errors"
 	"image"
 	"image/color"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +19,6 @@ func TestMetadataAndResize(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	out := filepath.Join(root, "public")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "images"), 0o755))
 
 	imgPath := filepath.Join(root, "images", "sample.png")
@@ -32,7 +33,7 @@ func TestMetadataAndResize(t *testing.T) {
 	require.NoError(t, png.Encode(f, img))
 	require.NoError(t, f.Close())
 
-	p := New(root, out)
+	p := New(filesystem.NewDiskFS(root), filesystem.NewDiskFS(root))
 	md, err := p.GetMetadata("images/sample.png")
 	require.NoError(t, err)
 	assert.Equal(t, 20, md.Width)
@@ -41,37 +42,39 @@ func TestMetadataAndResize(t *testing.T) {
 	url, err := p.Resize("images/sample.png", 8, 4)
 	require.NoError(t, err)
 	assert.Contains(t, url, "/processed_images/")
-	require.FileExists(t, filepath.Join(out, filepath.FromSlash(url[1:])))
+	require.FileExists(t, filepath.Join(root, filepath.FromSlash(url[1:])))
 }
 
 func TestResizeWithBackends_FallsThroughOnError(t *testing.T) {
 	called := make([]string, 0, 3)
+	input := []byte("input")
 	backends := []resizeBackend{
 		{
 			name: "vips",
-			run: func(params ResizeParams) error {
+			run: func(params ResizeParams) ([]byte, error) {
 				called = append(called, "vips")
-				return errors.New("vips failed")
+				return nil, errors.New("vips failed")
 			},
 		},
 		{
 			name: "magick",
-			run: func(params ResizeParams) error {
+			run: func(params ResizeParams) ([]byte, error) {
 				called = append(called, "magick")
-				return errors.New("magick failed")
+				return nil, errors.New("magick failed")
 			},
 		},
 		{
 			name: "go",
-			run: func(params ResizeParams) error {
+			run: func(params ResizeParams) ([]byte, error) {
 				called = append(called, "go")
-				return nil
+				return []byte("ok"), nil
 			},
 		},
 	}
 
-	err := resizeWithBackends(backends, ResizeParams{Width: 10, Height: 5})
+	out, err := resizeWithBackends(backends, ResizeParams{Input: input, Ext: ".png", Width: 10, Height: 5})
 	require.NoError(t, err)
+	assert.Equal(t, []byte("ok"), out)
 	assert.Equal(t, []string{"vips", "magick", "go"}, called)
 }
 
@@ -79,21 +82,49 @@ func TestResizeWithBackends_ReturnsCombinedErrorWhenAllFail(t *testing.T) {
 	backends := []resizeBackend{
 		{
 			name: "vips",
-			run: func(params ResizeParams) error {
-				return errors.New("boom1")
+			run: func(params ResizeParams) ([]byte, error) {
+				return nil, errors.New("boom1")
 			},
 		},
 		{
 			name: "magick",
-			run: func(params ResizeParams) error {
-				return errors.New("boom2")
+			run: func(params ResizeParams) ([]byte, error) {
+				return nil, errors.New("boom2")
 			},
 		},
 	}
 
-	err := resizeWithBackends(backends, ResizeParams{Width: 10, Height: 5})
+	_, err := resizeWithBackends(backends, ResizeParams{Input: []byte("input"), Ext: ".png", Width: 10, Height: 5})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "all resize backends failed")
 	assert.Contains(t, err.Error(), "vips: boom1")
 	assert.Contains(t, err.Error(), "magick: boom2")
+}
+
+func TestResize_WritesViaProvidedFS(t *testing.T) {
+	t.Parallel()
+
+	img := image.NewRGBA(image.Rect(0, 0, 6, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 6; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 100, B: 50, A: 255})
+		}
+	}
+	var pngBuf bytes.Buffer
+	require.NoError(t, png.Encode(&pngBuf, img))
+
+	mfs := filesystem.NewMemoryFS()
+	require.NoError(t, mfs.WriteFile("images/sample.png", pngBuf.Bytes(), 0o644))
+	p := New(mfs, mfs)
+
+	url, err := p.Resize("images/sample.png", 3, 2)
+	require.NoError(t, err)
+	assert.Equal(t, "/processed_images/sample-3x2.png", url)
+
+	out, err := mfs.ReadFile("processed_images/sample-3x2.png")
+	require.NoError(t, err)
+	conf, _, err := image.DecodeConfig(bytes.NewReader(out))
+	require.NoError(t, err)
+	assert.Equal(t, 3, conf.Width)
+	assert.Equal(t, 2, conf.Height)
 }

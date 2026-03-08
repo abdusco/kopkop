@@ -27,7 +27,7 @@ generate_robots_txt = true
 	_ = os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644)
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	if err != nil {
 		b.Fatal(err)
 	}

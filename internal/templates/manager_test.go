@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"bytes"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -8,11 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 
+	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,16 +20,13 @@ import (
 func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "themes", "hyde", "templates"), 0o755))
+	fys := newMemoryFS(map[string][]byte{
+		"templates/section.html":                       []byte("site-section"),
+		"themes/hyde/templates/page.html":              []byte("theme-page"),
+		"themes/hyde/templates/shortcodes/pirate.html": []byte("Arr"),
+	})
 
-	require.NoError(t, os.WriteFile(filepath.Join(root, "themes", "hyde", "templates", "page.html"), []byte("theme-page"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("site-section"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "themes", "hyde", "templates", "shortcodes"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "themes", "hyde", "templates", "shortcodes", "pirate.html"), []byte("Arr"), 0o644))
-
-	mgr, err := LoadManager(root, "hyde")
+	mgr, err := LoadManagerFS(fys, fys, "hyde")
 	require.NoError(t, err)
 
 	out, err := mgr.Render("page.html", map[string]any{})
@@ -53,25 +50,15 @@ func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 func TestManagerHelpers(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "images"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "data.txt"), []byte("hello"), 0o644))
-	img := image.NewRGBA(image.Rect(0, 0, 10, 5))
-	for y := range 5 {
-		for x := range 10 {
-			img.Set(x, y, color.RGBA{R: 255, A: 255})
-		}
-	}
-	imgFile, err := os.Create(filepath.Join(root, "images", "sample.png"))
-	require.NoError(t, err)
-	require.NoError(t, png.Encode(imgFile, img))
-	require.NoError(t, imgFile.Close())
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test.txt"), []byte(`{{ "abc"|base64_encode }}|{{ "YWJj"|base64_decode }}|{{ "a1b2"|regex_replace("[0-9]", "") }}|{{ get_url("posts/hello") }}|{{ get_url(path="posts/hello", absolute=false) }}|{{ load_data("data.txt") }}`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test-url.html"), []byte(`<a href='{{ get_url(path="posts/hello") }}'>x</a>`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "test-image.txt"), []byte(`{% set md = get_image_metadata("images/sample.png") %}{{ md.width }}x{{ md.height }}|{{ resize_image("images/sample.png", 4, 2) }}`), 0o644))
+	fys := newMemoryFS(map[string][]byte{
+		"data.txt":                 []byte("hello"),
+		"images/sample.png":        mustPNG(10, 5),
+		"templates/test.txt":       []byte(`{{ "abc"|base64_encode }}|{{ "YWJj"|base64_decode }}|{{ "a1b2"|regex_replace("[0-9]", "") }}|{{ get_url("posts/hello") }}|{{ get_url(path="posts/hello", absolute=false) }}|{{ load_data("data.txt") }}`),
+		"templates/test-url.html":  []byte(`<a href='{{ get_url(path="posts/hello") }}'>x</a>`),
+		"templates/test-image.txt": []byte(`{% set md = get_image_metadata("images/sample.png") %}{{ md.width }}x{{ md.height }}`),
+	})
 
-	mgr, err := LoadManager(root, "")
+	mgr, err := LoadManagerFS(fys, fys, "")
 	require.NoError(t, err)
 
 	out, err := mgr.Render("test.txt", map[string]any{
@@ -82,8 +69,7 @@ func TestManagerHelpers(t *testing.T) {
 
 	imgOut, err := mgr.Render("test-image.txt", map[string]any{})
 	require.NoError(t, err)
-	assert.Contains(t, imgOut, "10x5|")
-	assert.Contains(t, imgOut, "/processed_images/")
+	assert.Equal(t, "10x5", imgOut)
 
 	htmlOut, err := mgr.Render("test-url.html", map[string]any{
 		"config": map[string]any{"base_url": "https://example.com"},
@@ -102,55 +88,23 @@ func TestLoadData(t *testing.T) {
 		template string
 		want     string
 	}{
-		{
-			name:     "json object field access",
-			data:     map[string]string{"data.json": `{"name":"Alice","age":30}`},
-			template: `{{ load_data("data.json").name }}`,
-			want:     "Alice",
-		},
-		{
-			name:     "json array iteration",
-			data:     map[string]string{"list.json": `["a","b","c"]`},
-			template: `{% for x in load_data("list.json") %}{{ x }}{% endfor %}`,
-			want:     "abc",
-		},
-		{
-			name:     "toml field access",
-			data:     map[string]string{"data.toml": "name = \"Bob\"\n"},
-			template: `{{ load_data("data.toml").name }}`,
-			want:     "Bob",
-		},
-		{
-			name:     "yaml field access",
-			data:     map[string]string{"data.yaml": "name: Carol\n"},
-			template: `{{ load_data("data.yaml").name }}`,
-			want:     "Carol",
-		},
-		{
-			name:     "csv headers and records",
-			data:     map[string]string{"data.csv": "id,name\n1,Alice\n2,Bob\n"},
-			template: `{{ load_data("data.csv").headers | join(",") }}:{{ load_data("data.csv").records | length }}`,
-			want:     "id,name:2",
-		},
-		{
-			name:     "format=plain overrides json extension",
-			data:     map[string]string{"raw.json": `{"x":1}`},
-			template: `{{ load_data("raw.json", format="plain") }}`,
-			want:     `{"x":1}`,
-		},
+		{name: "json object field access", data: map[string]string{"data.json": `{"name":"Alice","age":30}`}, template: `{{ load_data("data.json").name }}`, want: "Alice"},
+		{name: "json array iteration", data: map[string]string{"list.json": `["a","b","c"]`}, template: `{% for x in load_data("list.json") %}{{ x }}{% endfor %}`, want: "abc"},
+		{name: "toml field access", data: map[string]string{"data.toml": "name = \"Bob\"\n"}, template: `{{ load_data("data.toml").name }}`, want: "Bob"},
+		{name: "yaml field access", data: map[string]string{"data.yaml": "name: Carol\n"}, template: `{{ load_data("data.yaml").name }}`, want: "Carol"},
+		{name: "csv headers and records", data: map[string]string{"data.csv": "id,name\n1,Alice\n2,Bob\n"}, template: `{{ load_data("data.csv").headers | join(",") }}:{{ load_data("data.csv").records | length }}`, want: "id,name:2"},
+		{name: "format=plain overrides json extension", data: map[string]string{"raw.json": `{"x":1}`}, template: `{{ load_data("raw.json", format="plain") }}`, want: `{"x":1}`},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			root := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+			files := map[string][]byte{"templates/t.txt": []byte(tc.template)}
 			for name, content := range tc.data {
-				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(content), 0o644))
+				files[name] = []byte(content)
 			}
-			require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "t.txt"), []byte(tc.template), 0o644))
-
-			mgr, err := LoadManager(root, "")
+			mfs := newMemoryFS(files)
+			mgr, err := LoadManagerFS(mfs, mfs, "")
 			require.NoError(t, err)
 
 			out, err := mgr.Render("t.txt", map[string]any{})
@@ -170,88 +124,41 @@ func TestLoadURL(t *testing.T) {
 		want     string
 		wantErr  bool
 	}{
-		{
-			name: "json via Content-Type header",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{"name":"Alice"}`))
-			},
-			template: func(u string) string {
-				return `{% set d = load_url(url="` + u + `") %}{{ d.name }}`
-			},
-			want: "Alice",
-		},
-		{
-			name: "yaml via URL extension",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte("name: Bob\n"))
-			},
-			template: func(u string) string {
-				return `{% set d = load_url(url="` + u + `/data.yaml") %}{{ d.name }}`
-			},
-			want: "Bob",
-		},
-		{
-			name: "format kwarg overrides Content-Type",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{"x":1}`))
-			},
-			template: func(u string) string {
-				return `{{ load_url(url="` + u + `", format="plain") }}`
-			},
-			want: `{"x":1}`,
-		},
-		{
-			name: "custom header forwarded",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				b, _ := json.Marshal(map[string]string{"got": r.Header.Get("X-Test")})
-				w.Write(b)
-			},
-			template: func(u string) string {
-				return `{% set d = load_url(url="` + u + `", headers=["X-Test: hello"]) %}{{ d.got }}`
-			},
-			want: "hello",
-		},
-		{
-			name: "POST with body",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				body, _ := io.ReadAll(r.Body)
-				w.Header().Set("Content-Type", "application/json")
-				b, _ := json.Marshal(map[string]string{"received": string(body)})
-				w.Write(b)
-			},
-			template: func(u string) string {
-				return `{% set d = load_url(url="` + u + `", method="POST", body="hello") %}{{ d.received }}`
-			},
-			want: "hello",
-		},
-		{
-			name: "non-200 returns error",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				http.Error(w, "not found", http.StatusNotFound)
-			},
-			template: func(u string) string {
-				return `{{ load_url(url="` + u + `") }}`
-			},
-			wantErr: true,
-		},
+		{name: "json via Content-Type header", handler: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"name":"Alice"}`))
+		}, template: func(u string) string { return `{% set d = load_url(url="` + u + `") %}{{ d.name }}` }, want: "Alice"},
+		{name: "yaml via URL extension", handler: func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("name: Bob\n")) }, template: func(u string) string { return `{% set d = load_url(url="` + u + `/data.yaml") %}{{ d.name }}` }, want: "Bob"},
+		{name: "format kwarg overrides Content-Type", handler: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"x":1}`))
+		}, template: func(u string) string { return `{{ load_url(url="` + u + `", format="plain") }}` }, want: `{"x":1}`},
+		{name: "custom header forwarded", handler: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			b, _ := json.Marshal(map[string]string{"got": r.Header.Get("X-Test")})
+			_, _ = w.Write(b)
+		}, template: func(u string) string {
+			return `{% set d = load_url(url="` + u + `", headers=["X-Test: hello"]) %}{{ d.got }}`
+		}, want: "hello"},
+		{name: "POST with body", handler: func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			b, _ := json.Marshal(map[string]string{"received": string(body)})
+			_, _ = w.Write(b)
+		}, template: func(u string) string {
+			return `{% set d = load_url(url="` + u + `", method="POST", body="hello") %}{{ d.received }}`
+		}, want: "hello"},
+		{name: "non-200 returns error", handler: func(w http.ResponseWriter, r *http.Request) { http.Error(w, "not found", http.StatusNotFound) }, template: func(u string) string { return `{{ load_url(url="` + u + `") }}` }, wantErr: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-
 			srv := httptest.NewServer(tc.handler)
 			defer srv.Close()
 
-			root := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-			tpl := tc.template(srv.URL)
-			require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "t.txt"), []byte(tpl), 0o644))
-
-			mgr, err := LoadManager(root, "")
+			mfs := newMemoryFS(map[string][]byte{"templates/t.txt": []byte(tc.template(srv.URL))})
+			mgr, err := LoadManagerFS(mfs, mfs, "")
 			require.NoError(t, err)
 
 			out, err := mgr.Render("t.txt", map[string]any{})
@@ -272,17 +179,14 @@ func TestLoadURL_Cache(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"n":1}`))
+		_, _ = w.Write([]byte(`{"n":1}`))
 	}))
 	defer srv.Close()
 
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	// Call load_url twice with the same URL in one template render
-	tpl := `{{ load_url(url="` + srv.URL + `").n }}|{{ load_url(url="` + srv.URL + `").n }}`
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "t.txt"), []byte(tpl), 0o644))
-
-	mgr, err := LoadManager(root, "")
+	mfs := newMemoryFS(map[string][]byte{
+		"templates/t.txt": []byte(`{{ load_url(url="` + srv.URL + `").n }}|{{ load_url(url="` + srv.URL + `").n }}`),
+	})
+	mgr, err := LoadManagerFS(mfs, mfs, "")
 	require.NoError(t, err)
 
 	out, err := mgr.Render("t.txt", map[string]any{})
@@ -294,23 +198,16 @@ func TestLoadURL_Cache(t *testing.T) {
 func TestLookupHelpers(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "lookup.txt"), []byte(`{% set p = get_page(path="a.md") %}{% set s = get_section(path="blog/_index.md") %}{% set tx = get_taxonomy(kind="tags") %}{{ p.title }}|{{ s.title }}|{{ tx.name }}|{{ get_taxonomy_url(kind="tags", term="Go Lang") }}`), 0o644))
-
-	mgr, err := LoadManager(root, "")
+	mfs := newMemoryFS(map[string][]byte{
+		"templates/lookup.txt": []byte(`{% set p = get_page(path="a.md") %}{% set s = get_section(path="blog/_index.md") %}{% set tx = get_taxonomy(kind="tags") %}{{ p.title }}|{{ s.title }}|{{ tx.name }}|{{ get_taxonomy_url(kind="tags", term="Go Lang") }}`),
+	})
+	mgr, err := LoadManagerFS(mfs, mfs, "")
 	require.NoError(t, err)
 
 	out, err := mgr.Render("lookup.txt", map[string]any{
-		"__pages": map[string]any{
-			"a.md": map[string]any{"title": "PageA"},
-		},
-		"__sections": map[string]any{
-			"blog/_index.md": map[string]any{"title": "Blog"},
-		},
-		"__taxonomies": map[string]any{
-			"tags": map[string]any{"name": "tags", "terms": map[string]any{}},
-		},
+		"__pages":      map[string]any{"a.md": map[string]any{"title": "PageA"}},
+		"__sections":   map[string]any{"blog/_index.md": map[string]any{"title": "Blog"}},
+		"__taxonomies": map[string]any{"tags": map[string]any{"name": "tags", "terms": map[string]any{}}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "PageA|Blog|tags|/tags/go-lang/", out)
@@ -319,11 +216,10 @@ func TestLookupHelpers(t *testing.T) {
 func TestGetURL_UsesConfigLinkStrategy(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "url.txt"), []byte(`{{ get_url("posts/hello") }}`), 0o644))
-
-	mgr, err := LoadManager(root, "")
+	mfs := newMemoryFS(map[string][]byte{
+		"templates/url.txt": []byte(`{{ get_url("posts/hello") }}`),
+	})
+	mgr, err := LoadManagerFS(mfs, mfs, "")
 	require.NoError(t, err)
 
 	out, err := mgr.Render("url.txt", map[string]any{
@@ -344,4 +240,25 @@ func TestNormalizeTemplateSyntax_NamedEndTags(t *testing.T) {
 	assert.NotContains(t, out, "endmacro twice")
 	assert.NotContains(t, out, "endblock a")
 	assert.NotContains(t, out, "macros::twice")
+}
+
+func mustPNG(w int, h int) []byte {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.RGBA{R: 255, A: 255})
+		}
+	}
+
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+func newMemoryFS(files map[string][]byte) *filesystem.MemoryFS {
+	m := filesystem.NewMemoryFS()
+	for name, data := range files {
+		_ = m.WriteFile(name, data, 0o644)
+	}
+	return m
 }

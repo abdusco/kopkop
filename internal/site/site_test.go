@@ -14,7 +14,7 @@ func TestFixtureTemplateRender_PageTemplateDoesNotError(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..", "tests", "fixtures", "zola", "test_site")
-	s, err := New(root, filepath.Join(root, "config.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 
@@ -44,7 +44,7 @@ func TestFixturePageTemplate_InheritsFromAncestorSection(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..", "tests", "fixtures", "zola", "test_site")
-	s, err := New(root, filepath.Join(root, "config.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 
@@ -73,7 +73,7 @@ generate_robots_txt = true
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -114,13 +114,17 @@ generate_robots_txt = true
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
-	require.NoError(t, err)
-	require.NoError(t, s.Load(false))
 	first := filepath.Join(root, "out-a")
 	second := filepath.Join(root, "out-b")
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, OutputDir: first, Force: true, Concurrency: 4}))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, OutputDir: second, Force: true, Concurrency: 4}))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputDir: first})
+	require.NoError(t, err)
+	require.NoError(t, s.Load(false))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true, Concurrency: 4}))
+
+	s2, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputDir: second})
+	require.NoError(t, err)
+	require.NoError(t, s2.Load(false))
+	require.NoError(t, s2.Build(BuildOptions{BuildMode: BuildDisk, Force: true, Concurrency: 4}))
 
 	filesA := collectFiles(t, first)
 	filesB := collectFiles(t, second)
@@ -156,7 +160,7 @@ generate_robots_txt = false
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ paginator.current_index }}/{{ paginator.number_pagers }}|{% for p in section.pages %}{{ p.title }};{% endfor %}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -202,7 +206,7 @@ generate_robots_txt = false
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{% for p in section.pages %}{{ p.title }};{% endfor %}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -237,7 +241,7 @@ generate_robots_txt = false
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>section</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -272,7 +276,7 @@ taxonomies = [{name = "podcast_authors", feed = true}]
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "taxonomy_single.html"), []byte("<html><body>{{ taxonomy.term }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "atom.xml"), []byte("<?xml version='1.0'?><feed></feed>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -308,7 +312,7 @@ generate_robots_txt = false
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "atom.xml"), []byte("<?xml version='1.0'?><feed></feed>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -341,7 +345,7 @@ generate_robots_txt = false
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -378,7 +382,7 @@ highlight_theme = "github"
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><head><title>{{ page.title }}</title></head><body>{{ page.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><head><title>{{ section.title }}</title></head><body>{{ section.content|safe }}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
@@ -422,7 +426,7 @@ highlight_theme = "github"
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.content|safe }}</body></html>"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644))
 
-	s, err := New(root, filepath.Join(root, "zola.toml"))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))

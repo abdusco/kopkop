@@ -71,10 +71,12 @@ func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
 		if rel == "" || strings.HasSuffix(r.URL.Path, "/") {
 			rel = filepath.Join(rel, "index.html")
 		}
-		if v, ok := s.MemoryContent[filepath.ToSlash(rel)]; ok {
-			w.Header().Set("Content-Type", contentType(rel))
-			_, _ = w.Write([]byte(v))
-			return
+		if s.MemoryOutput != nil {
+			if v, err := s.MemoryOutput.ReadFile(filepath.ToSlash(rel)); err == nil {
+				w.Header().Set("Content-Type", contentType(rel))
+				_, _ = w.Write(v)
+				return
+			}
 		}
 		http.FileServer(http.Dir(s.OutputPath)).ServeHTTP(w, r)
 	}))

@@ -124,7 +124,7 @@ func runBuild(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := site.New(rootDir, cfgPath)
+	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath, OutputDir: *out})
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,6 @@ func runBuild(args []string) error {
 	return s.Build(site.BuildOptions{
 		IncludeDrafts: *drafts,
 		BaseURL:       *baseURL,
-		OutputDir:     *out,
 		BuildMode:     site.BuildDisk,
 		Minify:        *minify,
 		Force:         *force,
@@ -162,7 +161,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := site.New(rootDir, cfgPath)
+	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath})
 	if err != nil {
 		return err
 	}
@@ -198,7 +197,7 @@ func runCheck(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := site.New(rootDir, cfgPath)
+	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath})
 	if err != nil {
 		return err
 	}

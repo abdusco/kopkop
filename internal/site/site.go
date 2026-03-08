@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/xml"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"github.com/abdusco/kopkop/internal/assets"
 	"github.com/abdusco/kopkop/internal/config"
 	"github.com/abdusco/kopkop/internal/content"
+	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/abdusco/kopkop/internal/linkcheck"
 	"github.com/abdusco/kopkop/internal/markdown"
 	"github.com/abdusco/kopkop/internal/markdown/shortcode"
@@ -40,7 +42,6 @@ const (
 type BuildOptions struct {
 	IncludeDrafts bool
 	BaseURL       string
-	OutputDir     string
 	BuildMode     BuildMode
 	LiveReloadURL string
 	Minify        bool
@@ -49,17 +50,24 @@ type BuildOptions struct {
 }
 
 type Site struct {
-	BasePath      string
-	ConfigPath    string
-	Config        config.Config
-	Templates     *templates.Manager
-	Library       *content.Library
-	OutputPath    string
-	BuildMode     BuildMode
-	MemoryContent map[string]string
+	BasePath     string
+	ConfigPath   string
+	Config       config.Config
+	Templates    *templates.Manager
+	Library      *content.Library
+	OutputPath   string
+	OutputFS     filesystem.FileSystem
+	BuildMode    BuildMode
+	MemoryOutput *filesystem.MemoryFS
 
 	highlightCSSPath    string
 	highlightCSSWritten bool
+}
+
+type SiteParams struct {
+	BasePath   string
+	ConfigPath string
+	OutputDir  string
 }
 
 var htmlMinifier = func() *minify.M {
@@ -71,32 +79,44 @@ var htmlMinifier = func() *minify.M {
 var shortcodeParagraphRe = regexp.MustCompile(`(?s)<p>\s*` + regexp.QuoteMeta(shortcode.Placeholder) + `\s*</p>`)
 var continueReadingMarkerRe = regexp.MustCompile(`(?s)<span\s+id=["']continue-reading["']\s*></span>`)
 
-func New(basePath string, configPath string) (*Site, error) {
-	cfg, err := config.FromFile(configPath)
+func New(params SiteParams) (*Site, error) {
+	cfg, err := config.FromFile(params.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
 	if cfg.Theme != "" {
-		themeToml := filepath.Join(basePath, "themes", cfg.Theme, "theme.toml")
+		themeToml := filepath.Join(params.BasePath, "themes", cfg.Theme, "theme.toml")
 		if err := cfg.MergeTheme(themeToml); err != nil {
 			return nil, err
 		}
 	}
 
-	tplMgr, err := templates.LoadManager(basePath, cfg.Theme)
+	if params.OutputDir != "" {
+		cfg.OutputDir = params.OutputDir
+	}
+
+	outputPath := cfg.OutputDir
+	if !filepath.IsAbs(outputPath) {
+		outputPath = filepath.Join(params.BasePath, outputPath)
+	}
+
+	sourceFS := filesystem.NewDiskFS(params.BasePath)
+	outputFS := filesystem.NewDiskFS(outputPath)
+
+	tplMgr, err := templates.LoadManagerFS(sourceFS, outputFS, cfg.Theme)
 	if err != nil {
 		return nil, err
 	}
 
-	outputPath := filepath.Join(basePath, cfg.OutputDir)
 	return &Site{
-		BasePath:      basePath,
-		ConfigPath:    configPath,
-		Config:        cfg,
-		Templates:     tplMgr,
-		OutputPath:    outputPath,
-		BuildMode:     BuildDisk,
-		MemoryContent: map[string]string{},
+		BasePath:     params.BasePath,
+		ConfigPath:   params.ConfigPath,
+		Config:       cfg,
+		Templates:    tplMgr,
+		OutputPath:   outputPath,
+		OutputFS:     outputFS,
+		BuildMode:    BuildDisk,
+		MemoryOutput: filesystem.NewMemoryFS(),
 	}, nil
 }
 
@@ -119,11 +139,11 @@ func (s *Site) Build(opts BuildOptions) error {
 	if opts.BaseURL != "" {
 		s.Config.BaseURL = opts.BaseURL
 	}
-	if opts.OutputDir != "" {
-		s.OutputPath = opts.OutputDir
-	}
-	s.Templates.ConfigureHelpers(s.BasePath, s.OutputPath)
+	s.Templates.ConfigureHelpers()
 	s.BuildMode = opts.BuildMode
+	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
+		s.MemoryOutput = filesystem.NewMemoryFS()
+	}
 	if opts.Minify {
 		s.Config.MinifyHTML = true
 	}
@@ -1378,16 +1398,29 @@ func (s *Site) copyColocatedAssets() error {
 	for _, p := range s.Library.Pages {
 		for _, asset := range p.Assets {
 			relName := filepath.Base(asset)
-			destDir := filepath.Join(s.OutputPath, strings.TrimPrefix(p.Path, "/"))
-			if err := os.MkdirAll(destDir, 0o755); err != nil {
-				return err
-			}
+			destDir := filepath.ToSlash(strings.TrimPrefix(p.Path, "/"))
 			b, err := os.ReadFile(asset)
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(filepath.Join(destDir, relName), b, 0o644); err != nil {
-				return err
+			relOut := filepath.ToSlash(filepath.Join(destDir, relName))
+
+			if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
+				if s.MemoryOutput == nil {
+					s.MemoryOutput = filesystem.NewMemoryFS()
+				}
+				if err := s.MemoryOutput.WriteFile(relOut, b, 0o644); err != nil {
+					return err
+				}
+			}
+
+			if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
+				if s.OutputFS == nil {
+					s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
+				}
+				if err := s.OutputFS.WriteFile(relOut, b, 0o644); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1422,14 +1455,21 @@ func (s *Site) writeOutput(rel string, content string) error {
 	}
 
 	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
-		s.MemoryContent[filepath.ToSlash(rel)] = content
-	}
-	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
-		full := filepath.Join(s.OutputPath, rel)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if s.MemoryOutput == nil {
+			s.MemoryOutput = filesystem.NewMemoryFS()
+		}
+		if err := s.MemoryOutput.WriteFile(filepath.ToSlash(rel), []byte(content), 0o644); err != nil {
 			return err
 		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+	}
+	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
+		if s.OutputFS == nil {
+			s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
+		}
+		if err := s.OutputFS.MkdirAll(filepath.ToSlash(filepath.Dir(rel)), fs.FileMode(0o755)); err != nil {
+			return err
+		}
+		if err := s.OutputFS.WriteFile(filepath.ToSlash(rel), []byte(content), fs.FileMode(0o644)); err != nil {
 			return err
 		}
 	}

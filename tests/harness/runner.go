@@ -10,7 +10,7 @@ import (
 )
 
 func BuildWithKopkop(root string, configPath string, outputDir string, includeDrafts bool) error {
-	s, err := site.New(root, configPath)
+	s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: configPath, OutputDir: outputDir})
 	if err != nil {
 		return err
 	}
@@ -19,7 +19,6 @@ func BuildWithKopkop(root string, configPath string, outputDir string, includeDr
 	}
 	return s.Build(site.BuildOptions{
 		IncludeDrafts: includeDrafts,
-		OutputDir:     outputDir,
 		BuildMode:     site.BuildDisk,
 		Force:         true,
 	})
