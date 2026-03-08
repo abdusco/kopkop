@@ -174,6 +174,36 @@ func TestRenderContent(t *testing.T) {
 				assert.Contains(t, html, `rel="noopener"`)
 			},
 		},
+		{
+			name: "gfm table strikethrough and task list",
+			markdown: `| a | b |
+| - | - |
+| 1 | 2 |
+
+~~gone~~
+
+- [x] done`,
+			ctx: RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `<table>`)
+				assert.Contains(t, html, `<del>gone</del>`)
+				assert.Contains(t, html, `type="checkbox"`)
+			},
+		},
+		{
+			name: "footnotes",
+			markdown: `Footnote ref[^1]
+
+[^1]: Footnote text`,
+			ctx: RenderContext{},
+			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
+				assert.NoError(t, err)
+				assert.Contains(t, html, `fnref:1`)
+				assert.Contains(t, html, `id="fn:1"`)
+				assert.Contains(t, html, `Footnote text`)
+			},
+		},
 	}
 
 	for _, tc := range tests {

@@ -16,6 +16,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	ghtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
@@ -52,6 +53,10 @@ type RenderContext struct {
 
 func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	md := goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM,
+			extension.Footnote,
+		),
 		goldmark.WithRendererOptions(
 			ghtml.WithUnsafe(),
 			ghtml.WithXHTML(),
