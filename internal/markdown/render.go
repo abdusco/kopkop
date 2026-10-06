@@ -86,7 +86,13 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	if strings.TrimSpace(ctx.HighlightTheme) != "" {
 		body = applySyntaxHighlight(body, ctx.HighlightTheme)
 	}
-	summary := extractSummary(content, ctx, md)
+	var summary *string
+	if moreDividerRe.MatchString(content) {
+		if before, _, ok := strings.Cut(body, continueReadingHTML); ok {
+			s := before + continueReadingHTML
+			summary = &s
+		}
+	}
 
 	toc := collectTOC(doc, source)
 
@@ -336,21 +342,6 @@ func HighlightCSS(themeName string) (string, error) {
 		return "", fmt.Errorf("highlight css is empty")
 	}
 	return css + "\n", nil
-}
-
-func extractSummary(content string, ctx RenderContext, md goldmark.Markdown) *string {
-	loc := moreDividerRe.FindStringIndex(content)
-	if loc == nil {
-		return nil
-	}
-	before := content[:loc[0]]
-	buf := bytes.NewBuffer(nil)
-	doc := md.Parser().Parse(text.NewReader([]byte(before)))
-	if err := md.Renderer().Render(buf, []byte(before), doc); err != nil {
-		return nil
-	}
-	s := buf.String() + continueReadingHTML
-	return &s
 }
 
 func resolveInternalLink(link string, ctx RenderContext) (resolved string, err error) {

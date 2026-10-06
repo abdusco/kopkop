@@ -436,7 +436,11 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 	if pg.Meta.Extra != nil {
 		pageCtx["extra"] = pg.Meta.Extra
 	}
-	out, scs, err := shortcode.Parse(pg.RawContent)
+	return s.renderContentWithShortcodes(pg.RawContent, pageCtx, "page", pg.RelativePath, pg.Permalink, s.pageAnchorLinksEnabled(pg), defs)
+}
+
+func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any, contextKey, relativePath, permalink string, anchors bool, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
+	out, scs, err := shortcode.Parse(raw)
 	if err != nil {
 		return markdown.Rendered{}, err
 	}
@@ -451,7 +455,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 				return shortcode.Placeholder, nil
 			}
 			ctx := map[string]any{"nth": sc.Nth}
-			ctx["page"] = pageCtx
+			ctx[contextKey] = contentCtx
 			for k, v := range sc.Args {
 				ctx[k] = v
 			}
@@ -470,9 +474,9 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 	}
 	rendered, err := markdown.RenderContent(contentWithMD, markdown.RenderContext{
 		Permalinks:               s.Library.Permalinks,
-		CurrentPagePath:          pg.RelativePath,
-		CurrentPagePermalink:     pg.Permalink,
-		InsertAnchorLinks:        s.pageAnchorLinksEnabled(pg),
+		CurrentPagePath:          relativePath,
+		CurrentPagePermalink:     permalink,
+		InsertAnchorLinks:        anchors,
 		ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
 		HighlightTheme:           s.Config.Markdown.HighlightTheme,
 	})
@@ -486,7 +490,7 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 			return markdown.Rendered{}, fmt.Errorf("unknown shortcode: %s", sc.Name)
 		}
 		ctx := map[string]any{"nth": sc.Nth}
-		ctx["page"] = pageCtx
+		ctx[contextKey] = contentCtx
 		for k, v := range sc.Args {
 			ctx[k] = v
 		}
@@ -505,6 +509,11 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 		rendered.Body = strings.Replace(rendered.Body, shortcode.Placeholder, repl, 1)
 	}
 	rendered.Body = strings.ReplaceAll(rendered.Body, `<span id="continue-reading"></span>`+"\n<h", `<span id="continue-reading"></span><h`)
+	if rendered.Summary != nil {
+		before, _, _ := strings.Cut(rendered.Body, `<span id="continue-reading"></span>`)
+		summary := before + `<span id="continue-reading"></span>`
+		rendered.Summary = &summary
+	}
 
 	return rendered, nil
 }
@@ -517,14 +526,9 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		if sec.Meta.Render != nil && !*sec.Meta.Render {
 			continue
 		}
-		renderedSection, secErr := markdown.RenderContent(sec.RawContent, markdown.RenderContext{
-			Permalinks:               s.Library.Permalinks,
-			CurrentPagePath:          sec.RelativePath,
-			CurrentPagePermalink:     sec.Permalink,
-			InsertAnchorLinks:        s.sectionAnchorLinksEnabled(sec),
-			ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
-			HighlightTheme:           s.Config.Markdown.HighlightTheme,
-		})
+		renderedSection, secErr := s.renderContentWithShortcodes(sec.RawContent, map[string]any{
+			"title": sec.Meta.Title, "path": sec.Path, "permalink": sec.Permalink,
+		}, "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), s.Templates.ShortcodeDefinitions())
 		if secErr != nil {
 			return fmt.Errorf("render section markdown %q: %w", rel, secErr)
 		}
