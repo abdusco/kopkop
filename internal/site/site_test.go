@@ -119,7 +119,7 @@ generate_robots_txt = true
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputDir: first})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true, Concurrency: 4}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true, Concurrency: 1}))
 
 	s2, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputDir: second})
 	require.NoError(t, err)

@@ -140,6 +140,9 @@ func (s *Site) Load(includeDrafts bool) error {
 }
 
 func (s *Site) Build(opts BuildOptions) error {
+	if opts.Concurrency < 0 {
+		return fmt.Errorf("concurrency must not be negative")
+	}
 	if opts.BuildMode < BuildDisk || opts.BuildMode > BuildBoth {
 		return fmt.Errorf("invalid build mode: %d", opts.BuildMode)
 	}
@@ -294,7 +297,10 @@ func (s *Site) renderAllContent() error {
 func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 	paths := lo.Keys(s.Library.Pages)
 	sort.Strings(paths)
-	workers := pool.NewWithResults[pageRenderArtifact]().WithMaxGoroutines(runtime.GOMAXPROCS(0))
+	if concurrency == 0 {
+		concurrency = runtime.GOMAXPROCS(0)
+	}
+	workers := pool.NewWithResults[pageRenderArtifact]().WithMaxGoroutines(concurrency)
 	for _, rel := range paths {
 		if pg := s.Library.Pages[rel]; pg.Meta.Render != nil && !*pg.Meta.Render {
 			continue

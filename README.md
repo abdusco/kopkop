@@ -74,6 +74,7 @@ Output must not overlap the site root, configuration, source directories, reposi
 | `--drafts` | `false` | Include draft pages |
 | `--minify` | `false` | Minify HTML output |
 | `--force` | `false` | Overwrite existing output directory |
+| `--concurrency` | `0` | Page rendering workers; 0 uses GOMAXPROCS |
 
 **Build order:**
 
@@ -114,11 +115,12 @@ Starts a local dev server with filesystem watching and WebSocket live reload.
 | `--open` | `false` | Open browser on start |
 | `--debounce` | `200ms` | File watcher debounce duration |
 | `--store-html` | `false` | Also write HTML to disk (default: memory only) |
-| `--fast` | `false` | Fast rebuild mode |
 
 By default, generated files are served from memory without writing to disk. The server watches `content/`, `templates/`, `static/`, `data/`, and `themes/` recursively, plus the config file. Newly created directories are registered automatically. Extra paths can be added via `extra_watch_paths`, resolved against the site root; build output and repository metadata are excluded.
 
 Each rebuild reloads configuration, templates, and content into a fresh site. Requests use the last successful snapshot while rebuilding, and errors leave that snapshot available without sending a reload notification. With `--store-html`, the completed snapshot is also staged on disk before replacing the previous output directory. Ctrl-C closes the watcher, HTTP server, and live-reload WebSockets.
+
+The unused serve flags `--fast` and `--force` have been removed. Rebuilds always reload the full site; `--store-html` replaces the output directory after a successful build.
 
 Live reload is injected automatically via a WebSocket endpoint at `/__livereload`.
 
@@ -165,7 +167,7 @@ ignored_content = []
 # Additional paths to watch in serve mode
 extra_watch_paths = []
 
-# Whether to preserve file modification dates on output files
+# Whether to retain filename date prefixes in URL slugs
 paths_keep_dates = false
 
 # Include drafts in all builds (overridden by --drafts flag)
@@ -255,7 +257,7 @@ title = "Blog"
 description = "All posts"
 template = "blog.html"
 page_template = "post.html"
-sort_by = "date"         # "date", "weight", or anything else (preserves loader order)
+sort_by = "date"         # "date", "weight", or anything else (sorts by source path)
 paginate_by = 10
 paginate_path = "page"
 paginate_reversed = false

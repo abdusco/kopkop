@@ -24,11 +24,9 @@ type ServeOptions struct {
 	Port            int
 	IncludeDrafts   bool
 	OpenBrowser     bool
-	Fast            bool
 	Debounce        time.Duration
 	ExtraWatchPaths []string
 	StoreHTML       bool
-	Force           bool
 }
 
 func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {

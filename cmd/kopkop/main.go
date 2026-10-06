@@ -156,6 +156,7 @@ func runBuild(args []string) error {
 	force := fs.Bool("force", false, "overwrite output directory")
 	drafts := fs.Bool("drafts", false, "include drafts")
 	minify := fs.Bool("minify", false, "minify html")
+	concurrency := fs.Int("concurrency", 0, "page rendering workers (0: GOMAXPROCS)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -178,6 +179,7 @@ func runBuild(args []string) error {
 		BuildMode:     site.BuildDisk,
 		Minify:        *minify,
 		Force:         *force,
+		Concurrency:   *concurrency,
 	})
 }
 
@@ -190,8 +192,6 @@ func runServe(args []string) error {
 	drafts := fs.Bool("drafts", false, "include drafts")
 	storeHTML := fs.Bool("store-html", false, "store generated HTML in memory and disk (default: memory only)")
 	open := fs.Bool("open", false, "open browser")
-	fast := fs.Bool("fast", false, "fast mode")
-	force := fs.Bool("force", true, "overwrite output")
 	debounce := fs.Duration("debounce", 200*time.Millisecond, "watch debounce")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -217,9 +217,7 @@ func runServe(args []string) error {
 		Port:          *port,
 		IncludeDrafts: *drafts,
 		OpenBrowser:   *open,
-		Fast:          *fast,
 		StoreHTML:     *storeHTML,
-		Force:         *force,
 		Debounce:      *debounce,
 	})
 }
