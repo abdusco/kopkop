@@ -230,6 +230,12 @@ content/
 
 ### Front Matter
 
+Only the exact filename `_index.md` identifies a section. Names such as `_index_notes.md` and `_index.fr.md` are ordinary pages; language-specific filename routing is not implemented.
+
+Page filename slugs, explicit slugs, heading IDs, and taxonomy slugs preserve Unicode letters, numbers, and combining marks, normalize to NFC and lowercase, and replace punctuation or whitespace with hyphens. Source directory components retain their names. Empty normalized page slugs and taxonomy names/terms are rejected, and output collisions are reported before rendering. Titles do not override filename-derived page URLs.
+
+A bundle at `posts/bundle/index.md` defaults to `/posts/bundle/`. An explicit `slug = "custom"` gives it `/posts/custom/`; an explicit `path` takes precedence. An explicit slug on the root `index.md` also takes effect.
+
 Pages and sections support TOML (`+++`) or YAML (`---`) front matter.
 
 **Page front matter:**
@@ -281,6 +287,8 @@ weight = 0
 ### Date Extraction
 
 Dates can be embedded in filenames: `2024-01-15-my-post.md` sets the page date automatically.
+
+Supplied `date` and `updated` values must be valid `YYYY-MM-DD` dates or RFC3339 timestamps; empty, null, and malformed values fail with source context. Filename dates still apply when an explicit slug is set. Timestamps are normalized to UTC without changing the instant. Negative section `paginate_by` values are rejected.
 
 ### Summary
 

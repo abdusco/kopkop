@@ -2,6 +2,7 @@ package frontmatter
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -18,6 +19,57 @@ const (
 type RawFrontMatter struct {
 	Format Format
 	Data   string
+}
+
+// FieldLine locates a top-level field in the original source, including the
+// opening delimiter and leading whitespace. Zero means the field is absent.
+func FieldLine(content, key string) int {
+	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
+	raw, _, err := SplitContent(content)
+	if err != nil {
+		return 0
+	}
+	offset := strings.Count(content[:firstNonWhitespace(content)], "\n") + 1
+	if raw.Format == FormatYAML {
+		var document yaml.Node
+		if err := yaml.Unmarshal([]byte(raw.Data), &document); err != nil || len(document.Content) == 0 {
+			return 0
+		}
+		mapping := document.Content[0]
+		if mapping.Kind != yaml.MappingNode {
+			return 0
+		}
+		for i := 0; i < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == key {
+				return offset + mapping.Content[i].Line
+			}
+		}
+		return 0
+	}
+	var fields map[string]any
+	if err := raw.Decode(&fields); err != nil {
+		return 0
+	}
+	if _, exists := fields[key]; !exists {
+		return 0
+	}
+	pattern := regexp.MustCompile(`^\s*(?:` + regexp.QuoteMeta(key) + `|"` + regexp.QuoteMeta(key) + `"|'` + regexp.QuoteMeta(key) + `')\s*=`)
+	inTable := false
+	for i, line := range strings.Split(raw.Data, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "[") {
+			if strings.HasPrefix(trim, "["+key+"]") || strings.HasPrefix(trim, "["+key+".") {
+				return offset + i + 1
+			}
+			inTable = true
+			continue
+		}
+		if !inTable && pattern.MatchString(line) {
+			return offset + i + 1
+		}
+	}
+	// Inline tables and unusual key syntax still have source-file context.
+	return offset + 1
 }
 
 func SplitContent(content string) (RawFrontMatter, string, error) {

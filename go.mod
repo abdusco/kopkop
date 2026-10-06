@@ -13,6 +13,7 @@ require (
 	github.com/yuin/goldmark v1.7.16
 	golang.org/x/image v0.36.0
 	golang.org/x/net v0.51.0
+	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -24,5 +25,4 @@ require (
 	github.com/tdewolff/minify/v2 v2.24.10 // indirect
 	github.com/tdewolff/parse/v2 v2.8.10 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
 )

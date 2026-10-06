@@ -22,6 +22,9 @@ func TestComputePageSlug(t *testing.T) {
 			filePathForSlug: "My First Post",
 			wantSlug:        "my-first-post",
 		},
+		{name: "empty slug has no fallback", filePathForSlug: "🔥", wantSlug: ""},
+		{name: "date-like prefix requires separator", filePathForSlug: "2024-01-01garbage", wantSlug: "2024-01-01garbage"},
+		{name: "slug override keeps filename date", metaSlug: "Custom", filePathForSlug: "2024-01-01-post", wantSlug: "custom", wantDate: "2024-01-01"},
 		{
 			name:            "slug override wins",
 			metaSlug:        "Hello World",

@@ -1,7 +1,6 @@
 package pathing
 
 import (
-	"cmp"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,7 +8,7 @@ import (
 	"github.com/abdusco/kopkop/internal/slug"
 )
 
-var rfc3339DatePrefix = regexp.MustCompile(`^(?P<datetime>(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)(\.[0-9]+)?(Z|(\+|-)([01][0-9]|2[0-3]):([0-5][0-9])))?)(\s?(_|-)(?P<slug>.+$))?`)
+var rfc3339DatePrefix = regexp.MustCompile(`^(?P<datetime>(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9]|60)(\.[0-9]+)?(Z|(\+|-)([01][0-9]|2[0-3]):([0-5][0-9])))?)(\s?(_|-)(?P<slug>.+))?$`)
 
 func ExtractDateAndSlugFromFilename(input string) (date string, slug string, ok bool) {
 	matches := rfc3339DatePrefix.FindStringSubmatch(input)
@@ -28,18 +27,20 @@ func ExtractDateAndSlugFromFilename(input string) (date string, slug string, ok 
 }
 
 func ComputePageSlug(metaSlug string, filePathForSlug string, pathsKeepDates bool) (outSlug string, extractedDate string) {
-	if strings.TrimSpace(metaSlug) != "" {
-		return cmp.Or(slug.Normalize(metaSlug), "index"), ""
-	}
-
 	if dt, datedSlug, ok := ExtractDateAndSlugFromFilename(filePathForSlug); ok {
 		extractedDate = dt
+		if strings.TrimSpace(metaSlug) != "" {
+			return slug.Normalize(metaSlug), extractedDate
+		}
 		if datedSlug != "" && !pathsKeepDates {
-			return cmp.Or(slug.Normalize(datedSlug), "index"), extractedDate
+			return slug.Normalize(datedSlug), extractedDate
 		}
 	}
+	if strings.TrimSpace(metaSlug) != "" {
+		return slug.Normalize(metaSlug), extractedDate
+	}
 
-	return cmp.Or(slug.Normalize(filePathForSlug), "index"), extractedDate
+	return slug.Normalize(filePathForSlug), extractedDate
 }
 
 func ComputePagePath(metaPath string, slug string, components []string, fileName string, hasColocatedPath bool) string {
@@ -56,7 +57,7 @@ func ComputePagePath(metaPath string, slug string, components []string, fileName
 
 	var p string
 	if len(components) == 0 {
-		if fileName == "index" && !hasColocatedPath {
+		if fileName == "index" && !hasColocatedPath && slug == "" {
 			p = ""
 		} else {
 			p = slug

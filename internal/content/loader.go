@@ -13,6 +13,7 @@ import (
 	"github.com/abdusco/kopkop/internal/content/pathing"
 	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/abdusco/kopkop/internal/markdown"
+	"github.com/abdusco/kopkop/internal/slug"
 	"github.com/samber/lo"
 )
 
@@ -181,7 +182,7 @@ func collectContentFiles(contentDir string) ([]contentFile, error) {
 		files = append(files, contentFile{
 			AbsPath:   path,
 			RelPath:   rel,
-			IsSection: strings.HasPrefix(filepath.Base(path), "_index"),
+			IsSection: filepath.Base(path) == "_index.md",
 		})
 		return nil
 	})
@@ -230,12 +231,32 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		filePathForSlug = filepath.Base(filepath.Dir(relPath))
 	}
 	components := splitComponents(filepath.Dir(relPath))
-	slug, extractedDate := pathing.ComputePageSlug(meta.Slug, filePathForSlug, cfg.PathsKeepDates)
+	pageSlug, extractedDate := pathing.ComputePageSlug(meta.Slug, filePathForSlug, cfg.PathsKeepDates)
+	if frontmatter.FieldLine(content, "slug") > 0 && slug.Normalize(meta.Slug) == "" {
+		return nil, metadataError(relPath, content, "slug", "must contain a letter or number")
+	}
+	if baseName != "index" && pageSlug == "" {
+		return nil, fmt.Errorf("%s: filename normalizes to an empty slug; supply an explicit slug", relPath)
+	}
+	for name, terms := range meta.Taxonomies {
+		if slug.Normalize(name) == "" {
+			return nil, metadataError(relPath, content, "taxonomies", "taxonomy names must contain a letter or number")
+		}
+		for _, term := range terms {
+			if slug.Normalize(term) == "" {
+				return nil, metadataError(relPath, content, "taxonomies", "taxonomy terms must contain a letter or number")
+			}
+		}
+	}
 	hasColocated, _ := hasColocatedAssets(absPath)
 	if baseName == "index" {
-		slug = ""
+		if strings.TrimSpace(meta.Slug) == "" {
+			pageSlug = ""
+		} else if len(components) > 0 {
+			components = components[:len(components)-1]
+		}
 	}
-	p := pathing.ComputePagePath(meta.Path, slug, components, strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath)), hasColocated)
+	p := pathing.ComputePagePath(meta.Path, pageSlug, components, baseName, hasColocated)
 	permalink := pathing.MakePermalink(cfg.BaseURL, p)
 
 	page := &Page{
@@ -243,7 +264,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		RelativePath:  relPath,
 		Meta:          meta,
 		RawContent:    body,
-		Slug:          slug,
+		Slug:          pageSlug,
 		Path:          p,
 		Permalink:     permalink,
 		Components:    splitComponents(strings.Trim(p, "/")),
@@ -252,19 +273,32 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 
 	if t, ok := parseDateAny(meta.Date); ok {
 		page.Date = &t
+	} else if meta.Date != nil || frontmatter.FieldLine(content, "date") > 0 {
+		return nil, metadataError(relPath, content, "date", "must be a valid YYYY-MM-DD date or RFC3339 timestamp")
 	} else if extractedDate != "" {
 		if t, ok := parseDateAny(extractedDate); ok {
 			page.Date = &t
+		} else {
+			return nil, fmt.Errorf("%s: invalid filename date %q", relPath, extractedDate)
 		}
 	}
 	if t, ok := parseDateAny(meta.Updated); ok {
 		page.Updated = &t
+	} else if meta.Updated != nil || frontmatter.FieldLine(content, "updated") > 0 {
+		return nil, metadataError(relPath, content, "updated", "must be a valid YYYY-MM-DD date or RFC3339 timestamp")
 	}
 
 	assets, _ := findColocatedAssets(absPath)
 	page.Assets = assets
 
 	return page, nil
+}
+
+func metadataError(relPath, content, field, message string) error {
+	if line := frontmatter.FieldLine(content, field); line > 0 {
+		return fmt.Errorf("%s:%d: invalid %s: %s", relPath, line, field, message)
+	}
+	return fmt.Errorf("%s: invalid %s: %s", relPath, field, message)
 }
 
 func hasColocatedAssets(pageAbsPath string) (bool, error) {
@@ -279,6 +313,9 @@ func parseSection(absPath, relPath, content string, cfg config.Config) (*Section
 	meta, body, err := parseSectionFrontMatterOptional(relPath, content)
 	if err != nil {
 		return nil, err
+	}
+	if meta.PaginateBy < 0 {
+		return nil, metadataError(relPath, content, "paginate_by", "must not be negative")
 	}
 
 	dir := filepath.Dir(relPath)
@@ -531,16 +568,13 @@ func parseDateAny(v any) (time.Time, bool) {
 	case nil:
 		return time.Time{}, false
 	case time.Time:
-		if x.Hour() == 0 && x.Minute() == 0 && x.Second() == 0 && x.Nanosecond() == 0 {
-			return time.Date(x.Year(), x.Month(), x.Day(), 0, 0, 0, 0, time.UTC), true
-		}
 		return x.UTC(), true
 	case string:
 		if x == "" {
 			return time.Time{}, false
 		}
 		if t, err := time.Parse(time.RFC3339, x); err == nil {
-			return t, true
+			return t.UTC(), true
 		}
 		if t, err := time.Parse("2006-01-02", x); err == nil {
 			return t, true

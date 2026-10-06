@@ -1,9 +1,14 @@
 package slug
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
+)
 
 func Normalize(input string) string {
-	s := strings.TrimSpace(strings.ToLower(input))
+	s := norm.NFC.String(strings.TrimSpace(strings.ToLower(input)))
 	if s == "" {
 		return ""
 	}
@@ -12,7 +17,7 @@ func Normalize(input string) string {
 	b.Grow(len(s))
 	lastDash := false
 	for _, r := range s {
-		isAlphaNum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		isAlphaNum := unicode.IsLetter(r) || unicode.IsNumber(r) || (unicode.IsMark(r) && b.Len() > 0 && !lastDash)
 		if isAlphaNum {
 			b.WriteRune(r)
 			lastDash = false

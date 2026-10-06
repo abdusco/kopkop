@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/abdusco/kopkop/internal/filesystem"
+	"github.com/abdusco/kopkop/internal/slug"
 )
 
 type LinkCheckerLevel string
@@ -292,6 +293,11 @@ func (c *Config) Validate() error {
 		}
 		if err := filesystem.ValidatePath(f); err != nil || f == "." {
 			return fmt.Errorf("feed_filenames must contain relative output file paths: %w", fs.ErrInvalid)
+		}
+	}
+	for _, taxonomy := range c.Taxonomies {
+		if slug.Normalize(taxonomy.Name) == "" {
+			return errors.New("taxonomy names must contain a letter or number")
 		}
 	}
 	return nil
