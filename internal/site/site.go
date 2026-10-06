@@ -95,6 +95,9 @@ func New(params SiteParams) (*Site, error) {
 	if params.OutputDir != "" {
 		cfg.OutputDir = params.OutputDir
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 
 	outputPath := cfg.OutputDir
 	if !filepath.IsAbs(outputPath) {
@@ -156,11 +159,16 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if opts.BaseURL != "" {
-		if opts.BaseURL != s.Config.BaseURL {
+		cfg := s.Config
+		cfg.BaseURL = opts.BaseURL
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		if cfg.BaseURL != s.Config.BaseURL {
 			// Derived permalinks must be rebuilt using the effective configuration.
 			s.Library = nil
 		}
-		s.Config.BaseURL = opts.BaseURL
+		s.Config = cfg
 	}
 	s.BuildMode = opts.BuildMode
 	s.MemoryOutput = filesystem.NewMemoryFS()

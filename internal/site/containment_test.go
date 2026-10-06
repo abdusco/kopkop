@@ -47,8 +47,12 @@ func TestBuildRejectsOutputTraversal(t *testing.T) {
 					require.NoError(t, os.WriteFile(filepath.Join(contentDir, "sentinel"), []byte("overwrite"), 0o644))
 				}
 				s, err := New(SiteParams{BasePath: base, ConfigPath: config})
-				require.NoError(t, err)
-				require.ErrorIs(t, s.Build(BuildOptions{BuildMode: mode, Force: true}), fs.ErrInvalid)
+				if tc.config != "" {
+					require.ErrorIs(t, err, fs.ErrInvalid)
+				} else {
+					require.NoError(t, err)
+					require.ErrorIs(t, s.Build(BuildOptions{BuildMode: mode, Force: true}), fs.ErrInvalid)
+				}
 				data, err := os.ReadFile(sentinel)
 				require.NoError(t, err)
 				require.Equal(t, "keep me", string(data))

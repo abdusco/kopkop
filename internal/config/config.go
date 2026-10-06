@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -32,15 +35,24 @@ type Markdown struct {
 	InsertAnchorLinks        bool   `toml:"insert_anchor_links"`
 	ExternalLinksTargetBlank bool   `toml:"external_links_target_blank"`
 	HighlightTheme           string `toml:"highlight_theme"`
+	unsupportedKeys          []string
 }
 
 func (m *Markdown) UnmarshalTOML(v any) error {
 	m.InsertAnchorLinks = false
 	m.ExternalLinksTargetBlank = false
 	m.HighlightTheme = ""
+	m.unsupportedKeys = nil
 	obj, ok := v.(map[string]any)
 	if !ok {
-		return nil
+		return errors.New("markdown must be a table")
+	}
+	for key := range obj {
+		switch key {
+		case "insert_anchor_links", "external_links_target_blank", "highlight_theme", "highlight_code", "highlighting":
+		default:
+			m.unsupportedKeys = append(m.unsupportedKeys, "markdown."+key)
+		}
 	}
 	if raw, exists := obj["insert_anchor_links"]; exists {
 		switch val := raw.(type) {
@@ -97,6 +109,9 @@ type TaxonomyConfig struct {
 }
 
 type Config struct {
+	// UnsupportedKeys reports ignored settings for compatibility with Zola configs.
+	UnsupportedKeys     []string `toml:"-"`
+	metadata            *toml.MetaData
 	BaseURL             string           `toml:"base_url"`
 	Title               string           `toml:"title"`
 	Description         string           `toml:"description"`
@@ -156,11 +171,25 @@ func Default() Config {
 
 func FromFile(filename string) (Config, error) {
 	cfg := Default()
-	if _, err := toml.DecodeFile(filename, &cfg); err != nil {
+	metadata, err := toml.DecodeFile(filename, &cfg)
+	if err != nil {
 		return Config{}, fmt.Errorf("parse config %q: %w", filename, err)
 	}
+	cfg.metadata = &metadata
+	for _, key := range metadata.Undecoded() {
+		if len(key) > 0 && key[0] == "extra" {
+			continue
+		}
+		cfg.UnsupportedKeys = append(cfg.UnsupportedKeys, key.String())
+	}
+	cfg.UnsupportedKeys = append(cfg.UnsupportedKeys, cfg.Markdown.unsupportedKeys...)
+	sort.Strings(cfg.UnsupportedKeys)
+	cfg.UnsupportedKeys = slices.Compact(cfg.UnsupportedKeys)
 	if err := cfg.Validate(); err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("config %q: %w", filename, err)
+	}
+	if len(cfg.UnsupportedKeys) > 0 {
+		log.Printf("config %q: unsupported settings ignored: %s", filename, strings.Join(cfg.UnsupportedKeys, ", "))
 	}
 	return cfg, nil
 }
@@ -185,22 +214,25 @@ func (c *Config) MergeThemeFS(sourceFS fs.FS, themeTomlPath string) error {
 		return fmt.Errorf("parse theme config %q: %w", themeTomlPath, err)
 	}
 
-	if c.Title == "" {
+	if c.Title == "" && (c.metadata == nil || !c.metadata.IsDefined("title")) {
 		c.Title = themeCfg.Title
 	}
-	if c.Description == "" {
+	if c.Description == "" && (c.metadata == nil || !c.metadata.IsDefined("description")) {
 		c.Description = themeCfg.Description
 	}
-	if len(c.Taxonomies) == 0 {
+	if len(c.Taxonomies) == 0 && (c.metadata == nil || !c.metadata.IsDefined("taxonomies")) {
 		c.Taxonomies = themeCfg.Taxonomies
 	}
-	if len(c.Extra) == 0 && len(themeCfg.Extra) > 0 {
+	if len(c.Extra) == 0 && len(themeCfg.Extra) > 0 && (c.metadata == nil || !c.metadata.IsDefined("extra")) {
 		c.Extra = themeCfg.Extra
 	}
-	return nil
+	return c.Validate()
 }
 
-func (c Config) Validate() error {
+func (c *Config) Validate() error {
+	c.BaseURL = strings.TrimSpace(c.BaseURL)
+	c.LinkStrategy = strings.ToLower(strings.TrimSpace(c.LinkStrategy))
+	c.LinkChecker.InternalLevel = LinkCheckerLevel(strings.ToLower(strings.TrimSpace(string(c.LinkChecker.InternalLevel))))
 	if c.Theme != "" {
 		if err := filesystem.ValidatePath(c.Theme); err != nil {
 			return fmt.Errorf("invalid theme path: %w", err)
@@ -209,9 +241,17 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return errors.New("base_url must not be empty")
 	}
-	if _, err := url.Parse(c.BaseURL); err != nil {
+	u, err := url.Parse(c.BaseURL)
+	if err != nil {
 		return fmt.Errorf("invalid base_url: %w", err)
 	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.Opaque != "" {
+		return errors.New("base_url must be an absolute HTTP or HTTPS URL with a host")
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return errors.New("base_url must not contain credentials, a query, or a fragment")
+	}
+	c.BaseURL = u.String()
 	if strings.TrimSpace(c.OutputDir) == "" {
 		return errors.New("output_dir must not be empty")
 	}
@@ -226,9 +266,23 @@ func (c Config) Validate() error {
 	if c.Search.IndexPath == "" {
 		return errors.New("search.index_path must not be empty")
 	}
+	if err := filesystem.ValidatePath(c.Search.IndexPath); err != nil || c.Search.IndexPath == "." {
+		return fmt.Errorf("search.index_path must be a relative output file path: %w", fs.ErrInvalid)
+	}
+	switch c.LinkChecker.InternalLevel {
+	case LinkCheckerWarn, LinkCheckerError:
+	default:
+		return errors.New("link_checker.internal_level must be one of: warn, error")
+	}
+	if c.LinkChecker.TimeoutSeconds <= 0 {
+		return errors.New("link_checker.timeout_seconds must be positive")
+	}
 	for _, f := range c.FeedFilenames {
 		if strings.TrimSpace(f) == "" {
 			return errors.New("feed_filenames must not contain empty values")
+		}
+		if err := filesystem.ValidatePath(f); err != nil || f == "." {
+			return fmt.Errorf("feed_filenames must contain relative output file paths: %w", fs.ErrInvalid)
 		}
 	}
 	return nil
@@ -263,27 +317,38 @@ func (c Config) MakePermalink(p string) string {
 }
 
 func DiscoverConfigPath(startDir string, configArg string) (rootDir string, configPath string, err error) {
-	if configArg != "" {
-		for dir := startDir; dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-			cand := filepath.Join(dir, configArg)
-			if _, statErr := os.Stat(cand); statErr == nil {
-				abs, _ := filepath.Abs(cand)
-				return dir, abs, nil
-			}
-			next := filepath.Dir(dir)
-			if next == dir {
-				break
-			}
+	startDir, err = filepath.Abs(startDir)
+	if err != nil {
+		return "", "", err
+	}
+	if filepath.IsAbs(configArg) {
+		configArg = filepath.Clean(configArg)
+		info, err := os.Stat(configArg)
+		if err != nil {
+			return "", "", fmt.Errorf("find config %q: %w", configArg, err)
 		}
-		return "", "", fmt.Errorf("%s not found in current directory or ancestors", configArg)
+		if !info.Mode().IsRegular() {
+			return "", "", fmt.Errorf("config %q must be a regular file", configArg)
+		}
+		return filepath.Dir(configArg), configArg, nil
 	}
 
+	names := []string{"zola.toml", "config.toml"}
+	if configArg != "" {
+		names = []string{configArg}
+	}
 	for dir := startDir; ; dir = filepath.Dir(dir) {
-		for _, name := range []string{"zola.toml", "config.toml"} {
+		for _, name := range names {
 			cand := filepath.Join(dir, name)
-			if _, statErr := os.Stat(cand); statErr == nil {
-				abs, _ := filepath.Abs(cand)
-				return dir, abs, nil
+			info, statErr := os.Stat(cand)
+			if statErr == nil {
+				if !info.Mode().IsRegular() {
+					return "", "", fmt.Errorf("config %q must be a regular file", cand)
+				}
+				return dir, cand, nil
+			}
+			if !errors.Is(statErr, fs.ErrNotExist) {
+				return "", "", fmt.Errorf("find config %q: %w", cand, statErr)
 			}
 		}
 		next := filepath.Dir(dir)
@@ -292,5 +357,8 @@ func DiscoverConfigPath(startDir string, configArg string) (rootDir string, conf
 		}
 	}
 
+	if configArg != "" {
+		return "", "", fmt.Errorf("%s not found in current directory or ancestors", configArg)
+	}
 	return "", "", errors.New("zola.toml (or config.toml) not found in current directory or ancestors")
 }

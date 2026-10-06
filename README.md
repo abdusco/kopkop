@@ -203,6 +203,12 @@ feed = false
 
 If `theme` is set, kopkop loads `themes/<theme>/theme.toml` and merges values that are not set in the main config (title, description, taxonomies, extra).
 
+Explicit empty strings, arrays, and tables in the site config suppress these theme defaults. Unsupported site config keys produce a warning listing the ignored settings; arbitrary keys under `extra` are supported.
+
+`base_url` must be an absolute HTTP or HTTPS URL with a host and may include a path prefix. Credentials, queries, and fragments are rejected. Link strategy and link-check severity are trimmed and normalized to lowercase; link-check timeouts must be positive. Search and feed filenames must be relative output file paths.
+
+`--config` accepts an absolute file path or a relative path searched from `--root` through its ancestors, including the filesystem root. An absolute path uses the config file's parent directory as the site root. Explicit config selection never falls back to another filename.
+
 ## Content
 
 ### Directory Layout
