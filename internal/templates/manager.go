@@ -42,18 +42,66 @@ type urlCacheEntry struct {
 	contentType string
 }
 
-type responseCache struct{ m sync.Map }
-
-func (c *responseCache) Get(key string) (urlCacheEntry, bool) {
-	v, ok := c.m.Load(key)
-	if !ok {
-		return urlCacheEntry{}, false
-	}
-	return v.(urlCacheEntry), true
+type urlLoad struct {
+	done  chan struct{}
+	entry urlCacheEntry
+	err   error
 }
 
-func (c *responseCache) Set(key string, entry urlCacheEntry) {
-	c.m.Store(key, entry)
+type responseCache struct {
+	mu    sync.Mutex
+	loads map[string]*urlLoad
+}
+
+func (c *responseCache) Load(req *http.Request, body string) (urlCacheEntry, error) {
+	identity, _ := json.Marshal([]any{req.Method, req.URL.String(), body, req.Header})
+	key := fmt.Sprintf("%x", sha256.Sum256(identity))
+	c.mu.Lock()
+	if existing := c.loads[key]; existing != nil {
+		c.mu.Unlock()
+		<-existing.done
+		return existing.entry, existing.err
+	}
+	if c.loads == nil {
+		c.loads = map[string]*urlLoad{}
+	}
+	load := &urlLoad{done: make(chan struct{})}
+	c.loads[key] = load
+	c.mu.Unlock()
+	load.entry, load.err = fetchURL(req)
+	c.mu.Lock()
+	if load.err != nil {
+		delete(c.loads, key)
+	}
+	close(load.done)
+	c.mu.Unlock()
+	return load.entry, load.err
+}
+
+func fetchURL(req *http.Request) (urlCacheEntry, error) {
+	resp, err := loadURLClient.Do(req)
+	if err != nil {
+		return urlCacheEntry{}, fmt.Errorf("load_url: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return urlCacheEntry{}, fmt.Errorf("load_url: HTTP %d for %s", resp.StatusCode, req.URL)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return urlCacheEntry{}, fmt.Errorf("load_url: reading response: %w", err)
+	}
+	return urlCacheEntry{body: b, contentType: resp.Header.Get("Content-Type")}, nil
+}
+
+func urlFormat(explicit string, u *url.URL, ct string) string {
+	if explicit != "" {
+		return strings.ToLower(explicit)
+	}
+	if format := contentTypeToFormat(ct); format != "" {
+		return format
+	}
+	return strings.TrimPrefix(strings.ToLower(path.Ext(u.Path)), ".")
 }
 
 func contentTypeToFormat(ct string) string {
@@ -554,19 +602,6 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 			}
 		}
 
-		cacheKey := method + " " + urlStr + "\n" + bodyStr
-		if entry, ok := urlCache.Get(cacheKey); ok {
-			if format == "" {
-				format = contentTypeToFormat(entry.contentType)
-			}
-			if format == "" {
-				if u, err := url.Parse(urlStr); err == nil {
-					format = strings.TrimPrefix(strings.ToLower(filepath.Ext(u.Path)), ".")
-				}
-			}
-			return parseData(entry.body, format)
-		}
-
 		var bodyReader io.Reader
 		if bodyStr != "" {
 			bodyReader = strings.NewReader(bodyStr)
@@ -594,35 +629,11 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 			}
 		}
 
-		resp, err := loadURLClient.Do(req)
+		entry, err := urlCache.Load(req, bodyStr)
 		if err != nil {
-			return value.Undefined(), fmt.Errorf("load_url: request failed: %w", err)
+			return value.Undefined(), err
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return value.Undefined(), fmt.Errorf("load_url: HTTP %d for %s", resp.StatusCode, urlStr)
-		}
-
-		b, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return value.Undefined(), fmt.Errorf("load_url: reading response: %w", err)
-		}
-
-		respContentType := resp.Header.Get("Content-Type")
-		urlCache.Set(cacheKey, urlCacheEntry{body: b, contentType: respContentType})
-
-		// format detection: kwarg > URL ext > Content-Type
-		if format == "" {
-			if u, err := url.Parse(urlStr); err == nil {
-				format = strings.TrimPrefix(strings.ToLower(filepath.Ext(u.Path)), ".")
-			}
-		}
-		if format == "" {
-			format = contentTypeToFormat(respContentType)
-		}
-
-		return parseData(b, format)
+		return parseData(entry.body, urlFormat(format, req.URL, entry.contentType))
 	})
 
 	env.AddFunction("get_hash", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
