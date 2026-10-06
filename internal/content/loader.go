@@ -327,7 +327,16 @@ func attachPagesToSections(lib *Library) {
 		}
 	}
 
-	for _, sec := range lib.Sections {
+	sectionPaths := lo.Keys(lib.Sections)
+	sort.Slice(sectionPaths, func(i, j int) bool {
+		di, dj := strings.Count(sectionPaths[i], "/"), strings.Count(sectionPaths[j], "/")
+		if di != dj {
+			return di > dj
+		}
+		return sectionPaths[i] < sectionPaths[j]
+	})
+	for _, rel := range sectionPaths {
+		sec := lib.Sections[rel]
 		if !sec.Meta.Transparent {
 			continue
 		}
@@ -396,6 +405,12 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 				}
 				term.Pages = append(term.Pages, rel)
 			}
+		}
+	}
+	for _, tax := range lib.Taxonomies {
+		for _, term := range tax.Terms {
+			term.Pages = lo.Uniq(term.Pages)
+			sort.Strings(term.Pages)
 		}
 	}
 }
