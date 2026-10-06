@@ -60,9 +60,17 @@ func TestBuildModesProduceCompleteMatchingArtifacts(t *testing.T) {
 				artifacts[name] = body
 				return err
 			}))
-			for _, name := range []string{"bundle/index.html", "bundle/asset.txt", "old/index.html", "theme.css", "style.css", "nested/file.txt", "search_index.json", "code-github.css", "processed_images/logo-1x1.png", "404.html"} {
+			for _, name := range []string{"bundle/index.html", "bundle/asset.txt", "old/index.html", "theme.css", "style.css", "nested/file.txt", "search_index.json", "code-github.css", "404.html"} {
 				require.Contains(t, artifacts, name)
 			}
+			processed := []string{}
+			for name := range artifacts {
+				if filepath.Dir(name) == "processed_images" {
+					processed = append(processed, name)
+				}
+			}
+			require.Len(t, processed, 1)
+			require.Regexp(t, `^processed_images/[0-9a-f]{64}-1x1\.png$`, processed[0])
 			require.Equal(t, []byte("Site style"), artifacts["style.css"])
 			if expected == nil {
 				expected = artifacts

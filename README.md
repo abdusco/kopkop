@@ -477,6 +477,8 @@ A site static file may override a theme static file at the exact same relative p
 
 Images can be resized via the `resize_image` template function. Processed images are written to the output directory and served normally.
 
+Processed image names include a SHA-256 digest of the source bytes and resize settings. Same-basename sources remain distinct, source edits change the URL, and identical transforms share an output. Repeated concurrent transforms are cached for the current build; failed transforms can be retried.
+
 ## Project Layout
 
 ```

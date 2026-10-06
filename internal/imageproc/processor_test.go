@@ -119,9 +119,9 @@ func TestResize_WritesViaProvidedFS(t *testing.T) {
 
 	url, err := p.Resize("images/sample.png", 3, 2)
 	require.NoError(t, err)
-	assert.Equal(t, "/processed_images/sample-3x2.png", url)
+	assert.Regexp(t, `^/processed_images/[0-9a-f]{64}-3x2\.png$`, url)
 
-	out, err := mfs.ReadFile("processed_images/sample-3x2.png")
+	out, err := mfs.ReadFile(url[1:])
 	require.NoError(t, err)
 	conf, _, err := image.DecodeConfig(bytes.NewReader(out))
 	require.NoError(t, err)

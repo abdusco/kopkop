@@ -2,6 +2,7 @@ package imageproc
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"image"
 	"image/gif"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/abdusco/kopkop/internal/filesystem"
 	"golang.org/x/image/draw"
@@ -27,6 +29,15 @@ type Metadata struct {
 type Processor struct {
 	SourceFS filesystem.FileSystem
 	OutputFS filesystem.FileSystem
+	mu       sync.Mutex
+	resizes  map[string]*resizeResult
+	backends []resizeBackend
+}
+
+type resizeResult struct {
+	done chan struct{}
+	url  string
+	err  error
 }
 
 type ResizeParams struct {
@@ -54,7 +65,7 @@ var availableBackends = func() []resizeBackend {
 }()
 
 func New(sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem) *Processor {
-	return &Processor{SourceFS: sourceFS, OutputFS: outputFS}
+	return &Processor{SourceFS: sourceFS, OutputFS: outputFS, resizes: map[string]*resizeResult{}, backends: availableBackends}
 }
 
 func (p *Processor) GetMetadata(relPath string) (Metadata, error) {
@@ -89,15 +100,36 @@ func (p *Processor) Resize(relPath string, width int, height int) (string, error
 		return "", fmt.Errorf("unable to detect image format for %q", relPath)
 	}
 
-	name := strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath))
-	outRel := filepath.ToSlash(filepath.Join("processed_images", fmt.Sprintf("%s-%dx%d%s", name, width, height, ext)))
+	// Include the transformation version, format, dimensions, backend policy,
+	// and source bytes. Identical transforms share a name regardless of path.
+	digest := sha256.New()
+	fmt.Fprintf(digest, "kopkop-resize-v1:%d:%d:%s:", width, height, ext)
+	for _, backend := range p.backends {
+		fmt.Fprintf(digest, "%s:", backend.name)
+	}
+	digest.Write(srcBytes)
+	outRel := fmt.Sprintf("processed_images/%x-%dx%d%s", digest.Sum(nil), width, height, ext)
+	p.mu.Lock()
+	if result := p.resizes[outRel]; result != nil {
+		p.mu.Unlock()
+		<-result.done
+		return result.url, result.err
+	}
+	result := &resizeResult{done: make(chan struct{})}
+	p.resizes[outRel] = result
+	p.mu.Unlock()
+	result.url, result.err = p.resizeTo(outRel, ResizeParams{Input: srcBytes, Ext: ext, Width: width, Height: height})
+	p.mu.Lock()
+	if result.err != nil {
+		delete(p.resizes, outRel) // Failed writes and transforms may be retried.
+	}
+	close(result.done)
+	p.mu.Unlock()
+	return result.url, result.err
+}
 
-	outBytes, err := resizeWithBackends(availableBackends, ResizeParams{
-		Input:  srcBytes,
-		Ext:    ext,
-		Width:  width,
-		Height: height,
-	})
+func (p *Processor) resizeTo(outRel string, params ResizeParams) (string, error) {
+	outBytes, err := resizeWithBackends(p.backends, params)
 	if err != nil {
 		return "", err
 	}
