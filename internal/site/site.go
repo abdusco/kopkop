@@ -226,10 +226,11 @@ func (s *Site) CheckExternalLinks() []linkcheck.Result {
 }
 
 type pageRenderArtifact struct {
-	Path string
-	HTML string
-	Page *content.Page
-	Err  error
+	Source string
+	Path   string
+	HTML   string
+	Page   *content.Page
+	Err    error
 }
 
 func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
@@ -252,11 +253,15 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 
 	workers := pool.NewWithResults[pageRenderArtifact]().WithMaxGoroutines(runtime.GOMAXPROCS(0))
 	for _, rel := range paths {
+		if pg := s.Library.Pages[rel]; pg.Meta.Render != nil && !*pg.Meta.Render {
+			continue
+		}
 		workers.Go(func() pageRenderArtifact {
 			pg := s.Library.Pages[rel]
+			outPath := filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html")
 			if strings.TrimSpace(pg.Meta.RedirectTo) != "" {
 				redirect := s.renderRedirect(s.redirectTargetURL(pg.Meta.RedirectTo))
-				return pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
+				return pageRenderArtifact{Source: rel, Path: outPath, HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
 			}
 
 			tplName := s.pageTemplateFor(pg)
@@ -269,13 +274,19 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			ctx["current_path"] = pg.Path
 			html, err := s.Templates.Render(tplName, ctx)
 			if err != nil {
-				html = "<html><body>" + pg.Content + "</body></html>"
+				err = fmt.Errorf("render page %q using %q to %q: %w", rel, tplName, outPath, err)
 			}
 			html = injectLiveReload(html, liveReloadURL)
-			return pageRenderArtifact{Path: filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html"), HTML: html, Page: pg}
+			return pageRenderArtifact{Source: rel, Path: outPath, HTML: html, Page: pg, Err: err}
 		})
 	}
 	renderedArtifacts := workers.Wait()
+	sort.Slice(renderedArtifacts, func(i, j int) bool { return renderedArtifacts[i].Source < renderedArtifacts[j].Source })
+	for _, artifact := range renderedArtifacts {
+		if artifact.Err != nil {
+			return artifact.Err
+		}
+	}
 
 	artifacts := make(map[string]pageRenderArtifact, len(renderedArtifacts))
 	for _, artifact := range renderedArtifacts {
@@ -494,9 +505,10 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
 			HighlightTheme:           s.Config.Markdown.HighlightTheme,
 		})
-		if secErr == nil {
-			sec.Content = renderedSection.Body
+		if secErr != nil {
+			return fmt.Errorf("render section markdown %q: %w", rel, secErr)
 		}
+		sec.Content = renderedSection.Body
 		tpl := "section.html"
 		if isRootSectionPath(sec.RelativePath) && s.templateExists("index.html") {
 			tpl = "index.html"
@@ -542,7 +554,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			}
 			html, err := s.Templates.Render(tpl, ctx)
 			if err != nil {
-				html = "<html><body><h1>" + sec.Meta.Title + "</h1></body></html>"
+				return fmt.Errorf("render section %q using %q to %q: %w", rel, tpl, plan.OutputPath, err)
 			}
 			html = injectLiveReload(html, liveReloadURL)
 			if err := s.writeOutput(plan.OutputPath, html); err != nil {
@@ -587,7 +599,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		}
 		html, err := s.Templates.Render("index.html", ctx)
 		if err != nil {
-			html = "<html><body><h1>Home</h1><pre>" + fmt.Sprintf("%+v", err) + "</pre></body></html>"
+			return fmt.Errorf("render homepage using %q to %q: %w", "index.html", "index.html", err)
 		}
 		html = injectLiveReload(html, liveReloadURL)
 		if err := s.writeOutput("index.html", html); err != nil {
