@@ -191,6 +191,9 @@ func (s *Site) Build(opts BuildOptions) error {
 			return err
 		}
 	}
+	if err := s.renderAllContent(); err != nil {
+		return err
+	}
 	if err := s.renderAllPages(opts.LiveReloadURL, opts.Concurrency); err != nil {
 		return err
 	}
@@ -250,7 +253,8 @@ type pageRenderArtifact struct {
 	Err    error
 }
 
-func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
+// Render the complete graph before any output template can inspect other content.
+func (s *Site) renderAllContent() error {
 	defs := s.Templates.ShortcodeDefinitions()
 	paths := lo.Keys(s.Library.Pages)
 	sort.Strings(paths)
@@ -267,7 +271,24 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			return content.Heading{ID: h.ID, Level: h.Level, Title: h.Title}
 		})
 	}
+	sectionPaths := lo.Keys(s.Library.Sections)
+	sort.Strings(sectionPaths)
+	for _, rel := range sectionPaths {
+		sec := s.Library.Sections[rel]
+		rendered, err := s.renderContentWithShortcodes(sec.RawContent, map[string]any{
+			"title": sec.Meta.Title, "path": sec.Path, "permalink": sec.Permalink,
+		}, "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), defs)
+		if err != nil {
+			return fmt.Errorf("render section markdown %q: %w", rel, err)
+		}
+		sec.Content = rendered.Body
+	}
+	return nil
+}
 
+func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
+	paths := lo.Keys(s.Library.Pages)
+	sort.Strings(paths)
 	workers := pool.NewWithResults[pageRenderArtifact]().WithMaxGoroutines(runtime.GOMAXPROCS(0))
 	for _, rel := range paths {
 		if pg := s.Library.Pages[rel]; pg.Meta.Render != nil && !*pg.Meta.Render {
@@ -526,13 +547,6 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		if sec.Meta.Render != nil && !*sec.Meta.Render {
 			continue
 		}
-		renderedSection, secErr := s.renderContentWithShortcodes(sec.RawContent, map[string]any{
-			"title": sec.Meta.Title, "path": sec.Path, "permalink": sec.Permalink,
-		}, "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), s.Templates.ShortcodeDefinitions())
-		if secErr != nil {
-			return fmt.Errorf("render section markdown %q: %w", rel, secErr)
-		}
-		sec.Content = renderedSection.Body
 		tpl := "section.html"
 		if isRootSectionPath(sec.RelativePath) && s.templateExists("index.html") {
 			tpl = "index.html"
