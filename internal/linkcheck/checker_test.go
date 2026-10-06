@@ -33,7 +33,8 @@ func TestCheckExternalLinks_StatusAndAnchor(t *testing.T) {
 	lib := content.NewLibrary()
 	lib.Pages["a.md"] = &content.Page{ExternalLinks: []string{ts.URL + "/ok#anchor", ts.URL + "/bad"}}
 
-	res := CheckExternalLinks(lib, config.LinkChecker{TimeoutSeconds: 2})
+	res, err := CheckExternalLinks(lib, config.LinkChecker{TimeoutSeconds: 2})
+	require.NoError(t, err)
 	require.Len(t, res, 2)
 
 	got := map[string]Result{}
@@ -58,10 +59,12 @@ func TestCheckExternalLinks_UsesPersistentCache(t *testing.T) {
 	lib.Pages["a.md"] = &content.Page{ExternalLinks: []string{ts.URL + "/ok"}}
 
 	cacheFile := filepath.Join(t.TempDir(), "cache.json")
-	cfg := config.LinkChecker{TimeoutSeconds: 2, CacheFile: cacheFile, UseCache: true}
-	res1 := CheckExternalLinks(lib, cfg)
+	cfg := config.LinkChecker{TimeoutSeconds: 2, CacheFile: cacheFile, UseCache: true, CacheTTLSeconds: 86400}
+	res1, err := CheckExternalLinks(lib, cfg)
+	require.NoError(t, err)
 	require.Len(t, res1, 1)
-	res2 := CheckExternalLinks(lib, cfg)
+	res2, err := CheckExternalLinks(lib, cfg)
+	require.NoError(t, err)
 	require.Len(t, res2, 1)
 	assert.Equal(t, int32(1), atomic.LoadInt32(&hits))
 }

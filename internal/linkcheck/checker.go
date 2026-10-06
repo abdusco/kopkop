@@ -1,13 +1,16 @@
 package linkcheck
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,25 +27,41 @@ type Result struct {
 	Error  string
 }
 
-func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) []Result {
+type cacheEntry struct {
+	Result
+	CheckedAt time.Time
+	Policy    string
+}
+
+func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) ([]Result, error) {
 	extLinks := lo.FlatMap(lo.Values(lib.Pages), func(pg *content.Page, _ int) []string {
 		return pg.ExternalLinks
 	})
 	extLinks = lo.Uniq(extLinks)
+	sort.Strings(extLinks)
 
 	if len(extLinks) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	client := &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second}
-	cache := map[string]Result{}
-	if cfg.UseCache {
-		cache = loadCache(cfg.CacheFile)
+	cache := map[string]cacheEntry{}
+	if cfg.UseCache && !cfg.Refresh {
+		var err error
+		cache, err = loadCache(cfg.CacheFile)
+		if err != nil {
+			return nil, fmt.Errorf("read link-check cache %q: %w", cfg.CacheFile, err)
+		}
 	}
+	policyBytes, _ := json.Marshal(cfg.SkipAnchorPrefixes)
+	policy := fmt.Sprintf("%x", sha256.Sum256(policyBytes))
+	now := time.Now()
+	ttl := time.Duration(cfg.CacheTTLSeconds) * time.Second
 
 	pendingLinks := lo.Filter(extLinks, func(link string, _ int) bool {
-		_, ok := cache[link]
-		return !ok
+		entry, ok := cache[link]
+		age := now.Sub(entry.CheckedAt)
+		return cfg.Refresh || !ok || !entry.OK || entry.URL != link || entry.Policy != policy || entry.CheckedAt.IsZero() || age < 0 || age >= ttl
 	})
 
 	if len(pendingLinks) > 0 {
@@ -53,22 +72,24 @@ func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) []Result {
 			})
 		}
 		for _, res := range workers.Wait() {
-			cache[res.URL] = res
+			cache[res.URL] = cacheEntry{Result: res, CheckedAt: time.Now(), Policy: policy}
 		}
 	}
 
 	results := make([]Result, 0, len(extLinks))
 	for _, link := range extLinks {
 		if res, ok := cache[link]; ok {
-			results = append(results, res)
+			results = append(results, res.Result)
 		}
 	}
 
 	if cfg.UseCache {
-		_ = saveCache(cfg.CacheFile, cache)
+		if err := saveCache(cfg.CacheFile, cache); err != nil {
+			return results, fmt.Errorf("write link-check cache %q: %w", cfg.CacheFile, err)
+		}
 	}
 
-	return results
+	return results, nil
 }
 
 func checkURL(client *http.Client, link string, cfg config.LinkChecker) Result {
@@ -113,25 +134,25 @@ func checkURL(client *http.Client, link string, cfg config.LinkChecker) Result {
 	return res
 }
 
-func loadCache(path string) map[string]Result {
-	if strings.TrimSpace(path) == "" {
-		return map[string]Result{}
-	}
+func loadCache(path string) (map[string]cacheEntry, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return map[string]Result{}
+		if errors.Is(err, os.ErrNotExist) {
+			return map[string]cacheEntry{}, nil
+		}
+		return nil, err
 	}
-	out := map[string]Result{}
+	out := map[string]cacheEntry{}
 	if err := json.Unmarshal(b, &out); err != nil {
-		return map[string]Result{}
+		return nil, err
 	}
-	return out
+	if out == nil {
+		out = map[string]cacheEntry{}
+	}
+	return out, nil
 }
 
-func saveCache(path string, data map[string]Result) error {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
+func saveCache(path string, data map[string]cacheEntry) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -139,5 +160,14 @@ func saveCache(path string, data map[string]Result) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	f, err := os.CreateTemp(filepath.Dir(path), ".kopkop-linkcheck-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, writeErr := f.Write(b)
+	if err := errors.Join(writeErr, f.Close()); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

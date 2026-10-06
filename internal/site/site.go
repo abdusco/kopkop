@@ -257,7 +257,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	return nil
 }
 
-func (s *Site) CheckExternalLinks() []linkcheck.Result {
+func (s *Site) CheckExternalLinks() ([]linkcheck.Result, error) {
 	return linkcheck.CheckExternalLinks(s.Library, s.Config.LinkChecker)
 }
 

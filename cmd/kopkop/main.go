@@ -227,6 +227,7 @@ func runCheck(args []string) error {
 	root := fs.String("root", ".", "root site directory")
 	configArg := fs.String("config", "", "config file name")
 	drafts := fs.Bool("drafts", false, "include drafts")
+	refresh := fs.Bool("refresh-links", false, "recheck external links ignoring cached results")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -246,7 +247,11 @@ func runCheck(args []string) error {
 	if err := s.Build(site.BuildOptions{IncludeDrafts: *drafts, BuildMode: site.BuildDisk, Force: true}); err != nil {
 		return err
 	}
-	results := s.CheckExternalLinks()
+	s.Config.LinkChecker.Refresh = *refresh
+	results, err := s.CheckExternalLinks()
+	if err != nil {
+		return err
+	}
 	failed := 0
 	warnOnly := s.Config.LinkChecker.InternalLevel == config.LinkCheckerWarn
 	for _, r := range results {

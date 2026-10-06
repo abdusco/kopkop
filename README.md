@@ -134,8 +134,11 @@ Builds the site and then verifies all external links found in the rendered conte
 |------|---------|-------------|
 | `--root` | `.` | Root site directory |
 | `--drafts` | `false` | Include drafts |
+| `--refresh-links` | `false` | Recheck all external links, ignoring cached results |
 
 Exit code is non-zero if broken links are found (unless `link_checker.internal_level = "warn"`).
+
+Successful external checks are cached for `link_checker.cache_ttl_seconds` (default: 86400 seconds). Set it to 0 to recheck every time. Failed checks are always retried. Legacy entries without timestamps and entries checked under a different anchor-skip policy are refreshed. Cache read/write errors fail the command; `--refresh-links` can replace a corrupt cache. Cache updates use an atomic file replacement, and results are sorted by URL.
 
 ## Configuration
 
@@ -188,6 +191,7 @@ index_path = "search_index.json"
 internal_level = "error"   # "warn" or "error"
 timeout_seconds = 10
 use_cache = true
+cache_ttl_seconds = 86400  # successful checks only; 0 disables reuse
 cache_file = ".kopkop-linkcheck-cache.json"
 skip_anchor_prefixes = []
 

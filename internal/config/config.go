@@ -29,6 +29,8 @@ type LinkChecker struct {
 	TimeoutSeconds     int              `toml:"timeout_seconds"`
 	CacheFile          string           `toml:"cache_file"`
 	UseCache           bool             `toml:"use_cache"`
+	CacheTTLSeconds    int              `toml:"cache_ttl_seconds"`
+	Refresh            bool             `toml:"-"`
 }
 
 type Markdown struct {
@@ -163,6 +165,7 @@ func Default() Config {
 			TimeoutSeconds:     10,
 			CacheFile:          ".kopkop-linkcheck-cache.json",
 			UseCache:           true,
+			CacheTTLSeconds:    86400,
 		},
 		Extra:          map[string]any{},
 		IgnoredContent: []string{},
@@ -276,6 +279,12 @@ func (c *Config) Validate() error {
 	}
 	if c.LinkChecker.TimeoutSeconds <= 0 {
 		return errors.New("link_checker.timeout_seconds must be positive")
+	}
+	if c.LinkChecker.CacheTTLSeconds < 0 {
+		return errors.New("link_checker.cache_ttl_seconds must not be negative")
+	}
+	if c.LinkChecker.UseCache && strings.TrimSpace(c.LinkChecker.CacheFile) == "" {
+		return errors.New("link_checker.cache_file must not be empty when caching is enabled")
 	}
 	for _, f := range c.FeedFilenames {
 		if strings.TrimSpace(f) == "" {
