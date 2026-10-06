@@ -54,29 +54,25 @@ func usage() {
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	force := fs.Bool("force", false, "overwrite existing target")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
 	name := "."
-	if fs.NArg() > 0 {
-		name = fs.Arg(0)
-	}
-	root := name
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return err
-	}
-	write := func(rel, body string) error {
-		p := filepath.Join(root, rel)
-		if _, err := os.Stat(p); err == nil && !*force {
-			return fmt.Errorf("%s exists (use --force)", p)
-		}
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	nameSet := false
+	for len(args) > 0 {
+		if err := fs.Parse(args); err != nil {
 			return err
 		}
-		return os.WriteFile(p, []byte(body), 0o644)
+		args = fs.Args()
+		if len(args) == 0 {
+			break
+		}
+		if nameSet {
+			return fmt.Errorf("init accepts one directory")
+		}
+		name, nameSet = args[0], true
+		args = args[1:]
 	}
-
-	if err := write("zola.toml", `base_url = "http://127.0.0.1:1111"
+	root := name
+	files := []struct{ path, body string }{
+		{"zola.toml", `base_url = "http://127.0.0.1:1111"
 title = "My Site"
 description = ""
 output_dir = "public"
@@ -85,23 +81,68 @@ build_search_index = false
 generate_sitemap = true
 generate_feeds = false
 generate_robots_txt = true
-`); err != nil {
-		return err
-	}
-	_ = write("content/_index.md", `+++
+`},
+		{"content/_index.md", `+++
 title = "Home"
 +++
 
 Welcome to your new site.
-`)
-	_ = write("templates/page.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ page.title }}</h1>{{ page.content|safe }}</body></html>`)
-	_ = write("templates/section.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ section.title }}</h1><ul>{% for p in section.pages %}<li><a href="{{ p.permalink }}">{{ p.title }}</a></li>{% endfor %}</ul></body></html>`)
-	_ = write("templates/index.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ config.title }}</h1></body></html>`)
-	_ = write("static/.keep", "")
-	_ = write("static/style.css", "body { font-family: sans-serif; margin: 2rem; line-height: 1.5; }\n"+
-		"h1 { margin-bottom: 1rem; }\n"+
-		"a { color: #0f4c81; text-decoration: none; }\n"+
-		"a:hover { text-decoration: underline; }\n")
+`},
+		{"templates/page.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ page.title }}</h1>{{ page.content|safe }}</body></html>`},
+		{"templates/section.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ section.title }}</h1><ul>{% for p in section.pages %}<li><a href="{{ p.permalink }}">{{ p.title }}</a></li>{% endfor %}</ul></body></html>`},
+		{"templates/index.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ config.title }}</h1></body></html>`},
+		{"static/.keep", ""},
+		{"static/style.css", "body { font-family: sans-serif; margin: 2rem; line-height: 1.5; }\n" +
+			"h1 { margin-bottom: 1rem; }\n" +
+			"a { color: #0f4c81; text-decoration: none; }\n" +
+			"a:hover { text-decoration: underline; }\n"},
+	}
+	// Check every destination and parent before writing the first scaffold file.
+	for _, file := range files {
+		p := filepath.Join(root, file.path)
+		info, err := os.Lstat(p)
+		if err == nil {
+			if !*force || !info.Mode().IsRegular() {
+				return fmt.Errorf("scaffold destination %q exists (regular files require --force)", p)
+			}
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect scaffold destination %q: %w", p, err)
+		}
+		for parent := filepath.Dir(p); ; parent = filepath.Dir(parent) {
+			info, err := os.Stat(parent)
+			if err == nil {
+				if !info.IsDir() {
+					return fmt.Errorf("scaffold parent %q is not a directory", parent)
+				}
+				break
+			}
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("inspect scaffold parent %q: %w", parent, err)
+			}
+			if filepath.Dir(parent) == parent {
+				break
+			}
+		}
+	}
+	for _, file := range files {
+		p := filepath.Join(root, file.path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return fmt.Errorf("create scaffold directory for %q: %w", p, err)
+		}
+		flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+		if *force {
+			flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+		}
+		f, err := os.OpenFile(p, flags, 0o644)
+		if err != nil {
+			return fmt.Errorf("create scaffold file %q: %w", p, err)
+		}
+		_, writeErr := f.WriteString(file.body)
+		closeErr := f.Close()
+		if err := errors.Join(writeErr, closeErr); err != nil {
+			return fmt.Errorf("write scaffold file %q: %w", p, err)
+		}
+	}
 	log.Printf("initialized site in %s", root)
 	return nil
 }

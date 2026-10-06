@@ -37,6 +37,59 @@ use_cache = false
 	require.NoError(t, runCheck([]string{"--root", root}))
 }
 
+func TestRunInitConflicts(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, path       string
+		directory, force bool
+	}{
+		{name: "existing late template", path: "templates/index.html"},
+		{name: "existing late static file", path: "static/style.css"},
+		{name: "directory destination", path: "templates/page.html", directory: true, force: true},
+		{name: "file parent", path: "static", force: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			p := filepath.Join(root, tc.path)
+			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+			if tc.directory {
+				require.NoError(t, os.Mkdir(p, 0o755))
+			} else {
+				require.NoError(t, os.WriteFile(p, []byte("keep me"), 0o644))
+			}
+			args := []string{root}
+			if tc.force {
+				args = append(args, "--force")
+			}
+			require.Error(t, runInit(args))
+			require.NoFileExists(t, filepath.Join(root, "zola.toml"))
+			if !tc.directory {
+				data, err := os.ReadFile(p)
+				require.NoError(t, err)
+				require.Equal(t, "keep me", string(data))
+			}
+		})
+	}
+}
+
+func TestRunInitForceFlagPlacement(t *testing.T) {
+	t.Parallel()
+	for _, after := range []bool{false, true} {
+		t.Run(fmt.Sprint(after), func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte("replace me"), 0o644))
+			args := []string{"--force", root}
+			if after {
+				args = []string{root, "--force"}
+			}
+			require.NoError(t, runInit(args))
+			require.FileExists(t, filepath.Join(root, "static", "style.css"))
+		})
+	}
+}
+
 func TestRunCheck_WarnModeDoesNotFail(t *testing.T) {
 	t.Parallel()
 
