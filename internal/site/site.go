@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"encoding/xml"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -158,12 +157,12 @@ func (s *Site) Build(opts BuildOptions) error {
 		s.Config.BaseURL = opts.BaseURL
 	}
 	s.BuildMode = opts.BuildMode
+	s.MemoryOutput = filesystem.NewMemoryFS()
 	s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
-	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
-		s.MemoryOutput = filesystem.NewMemoryFS()
-	}
 	if s.BuildMode == BuildMemory {
 		s.OutputFS = s.MemoryOutput
+	} else if s.BuildMode == BuildBoth {
+		s.OutputFS = &filesystem.MirrorFS{Primary: s.OutputFS, Mirror: s.MemoryOutput}
 	}
 	s.Templates.OutputFS = s.OutputFS
 	s.Templates.ConfigureHelpers()
@@ -1444,22 +1443,8 @@ func (s *Site) copyColocatedAssets() error {
 			}
 			relOut := filepath.ToSlash(filepath.Join(destDir, relName))
 
-			if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
-				if s.MemoryOutput == nil {
-					s.MemoryOutput = filesystem.NewMemoryFS()
-				}
-				if err := s.MemoryOutput.WriteFile(relOut, b, 0o644); err != nil {
-					return err
-				}
-			}
-
-			if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
-				if s.OutputFS == nil {
-					s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
-				}
-				if err := s.OutputFS.WriteFile(relOut, b, 0o644); err != nil {
-					return err
-				}
+			if err := s.OutputFS.WriteFile(relOut, b, 0o644); err != nil {
+				return err
 			}
 		}
 	}
@@ -1491,26 +1476,7 @@ func (s *Site) writeOutput(rel string, content string) error {
 		}
 	}
 
-	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
-		if s.MemoryOutput == nil {
-			s.MemoryOutput = filesystem.NewMemoryFS()
-		}
-		if err := s.MemoryOutput.WriteFile(filepath.ToSlash(rel), []byte(content), 0o644); err != nil {
-			return err
-		}
-	}
-	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
-		if s.OutputFS == nil {
-			s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
-		}
-		if err := s.OutputFS.MkdirAll(filepath.ToSlash(filepath.Dir(rel)), fs.FileMode(0o755)); err != nil {
-			return err
-		}
-		if err := s.OutputFS.WriteFile(filepath.ToSlash(rel), []byte(content), fs.FileMode(0o644)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.OutputFS.WriteFile(filepath.ToSlash(rel), []byte(content), 0o644)
 }
 
 func (s *Site) injectHighlightStylesheetIfNeeded(rel string, content string) (string, error) {
