@@ -176,6 +176,9 @@ func (s *Site) Build(opts BuildOptions) error {
 			return err
 		}
 	}
+	if err := s.validateOutputManifest(); err != nil {
+		return err
+	}
 
 	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
 		if !opts.Force {
@@ -329,22 +332,8 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 		}
 	}
 
-	artifacts := make(map[string]pageRenderArtifact, len(renderedArtifacts))
 	for _, artifact := range renderedArtifacts {
-		artifacts[artifact.Path] = artifact
-	}
-
-	for _, rel := range paths {
-		pg := s.Library.Pages[rel]
-		if pg.Meta.Render != nil && !*pg.Meta.Render {
-			continue
-		}
-		outPath := filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html")
-		artifact := artifacts[outPath]
-		if artifact.Path == "" {
-			continue
-		}
-		if err := s.writeOutput(outPath, artifact.HTML); err != nil {
+		if err := s.writeOutput(artifact.Path, artifact.HTML); err != nil {
 			return err
 		}
 	}

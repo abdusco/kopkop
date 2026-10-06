@@ -76,18 +76,24 @@ Output must not overlap the site root, configuration, source directories, reposi
 | `--force` | `false` | Overwrite existing output directory |
 
 **Build order:**
-1. Clean output directory (disk mode only)
-2. Render pages (markdown + shortcodes + templates)
-3. Render alias redirects
-4. Render sections
-5. Render taxonomies
-6. Render sitemap (if `generate_sitemap`)
-7. Render feeds (if `generate_feeds`)
-8. Render 404
-9. Render robots.txt (if `generate_robots_txt`)
-10. Build search index (if `build_search_index` or `search.build_index`)
-11. Copy static directory
-12. Copy colocated assets
+
+1. Load the content graph using the effective base URL, including any build override
+2. Validate output ownership and reject collisions
+3. Clean output directory (disk mode only)
+4. Render Markdown and shortcodes for all pages and sections
+5. Render page templates
+6. Render alias redirects
+7. Render section templates
+8. Render taxonomies
+9. Render sitemap (if `generate_sitemap`)
+10. Render feeds (if `generate_feeds`)
+11. Render 404
+12. Render robots.txt (if `generate_robots_txt`)
+13. Build search index (if `build_search_index` or `search.build_index`)
+14. Copy static directory
+15. Copy colocated assets
+
+Every output template sees the complete rendered content graph, including Markdown from pages and sections with `render = false`. Section shortcodes receive a `section` context; page shortcodes receive `page`. Page summaries reuse the transformed HTML before `<!-- more -->`, including shortcode output and resolved links.
 
 ### `serve`
 
@@ -450,6 +456,10 @@ When `generate_feeds = true`, feeds are generated for the site and any sections 
 ## Static Assets
 
 Files in `static/` are copied verbatim to the output directory. Colocated assets (files next to a page in `content/`) are copied adjacent to the rendered page output.
+
+Before rendering or clearing existing output, the build checks ownership of page and section outputs, pagination, aliases, taxonomies, feeds, builtin files, search indexes, static files, and colocated assets. Conflicts fail with the output path and both source owners. Output names must be distinct even when compared without case, and files cannot occupy paths required as directories. When highlighting is enabled, `code-<theme>.css` is reserved for the generated stylesheet.
+
+A site static file may override a theme static file at the exact same relative path. This exception applies only to matching files; static files cannot replace generated pages, feeds, or other artifacts, and file/directory conflicts fail. Repeated references to the same bundle asset at the same destination are allowed. Files generated dynamically by template helpers, such as resized images, are outside this preflight manifest.
 
 ## Image Processing
 
