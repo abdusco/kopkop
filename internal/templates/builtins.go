@@ -2,10 +2,12 @@ package templates
 
 func BuiltinTemplates() map[string]string {
 	return map[string]string{
-		"__zola_builtins/404.html":    "<!doctype html>\n<title>404 Not Found</title>\n<h1>404 Not Found</h1>",
-		"__zola_builtins/sitemap.xml": `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{% for p in pages %}<url><loc>{{ p }}</loc></url>{% endfor %}</urlset>`,
-		"__zola_builtins/rss.xml":     `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>{{ config.title }}</title>{% for p in pages %}<item><title>{{ p.title }}</title><link>{{ p.permalink }}</link></item>{% endfor %}</channel></rss>`,
-		"__zola_builtins/atom.xml":    `<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>{{ config.title }}</title>{% for p in pages %}<entry><title>{{ p.title }}</title><id>{{ p.permalink }}</id><link href="{{ p.permalink }}"/></entry>{% endfor %}</feed>`,
+		"__zola_builtins/taxonomy_list.html":   "\n{% for term in terms %}    {{ term.name }}  {{ term.slug }} {{ term.count }}\n{% endfor %}\n",
+		"__zola_builtins/taxonomy_single.html": "Category: {{ term.name }}\n\n\n{% for page in term.pages %}    <article>\n        <h3 class=\"post__title\"><a href=\"{{ page.permalink }}\">{{ page.title }}</a></h3>\n    </article>\n{% endfor %}\n",
+		"__zola_builtins/404.html":             "<!doctype html>\n<title>404 Not Found</title>\n<h1>404 Not Found</h1>",
+		"__zola_builtins/sitemap.xml":          `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{% for p in pages %}<url><loc>{{ p }}</loc></url>{% endfor %}</urlset>`,
+		"__zola_builtins/rss.xml":              `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>{{ config.title }}</title>{% for p in pages %}<item><title>{{ p.title }}</title><link>{{ p.permalink }}</link></item>{% endfor %}</channel></rss>`,
+		"__zola_builtins/atom.xml":             `<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>{{ config.title }}</title>{% for p in pages %}<entry><title>{{ p.title }}</title><id>{{ p.permalink }}</id><link href="{{ p.permalink }}"/></entry>{% endfor %}</feed>`,
 		"__zola_builtins/robots.txt": `User-agent: *
 Disallow:
 Allow: /

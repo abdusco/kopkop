@@ -1,6 +1,7 @@
 package site
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,8 @@ func TestBuildRejectsOutputTraversal(t *testing.T) {
 					pageName = "index.md"
 				}
 				require.NoError(t, os.MkdirAll(contentDir, 0o755))
+				require.NoError(t, os.MkdirAll(filepath.Join(base, "templates"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(base, "templates", "page.html"), []byte("{{ page.content | safe }}"), 0o644))
 				require.NoError(t, os.MkdirAll(filepath.Join(base, "outside"), 0o755))
 				sentinel := filepath.Join(base, "outside", "sentinel")
 				require.NoError(t, os.WriteFile(sentinel, []byte("keep me"), 0o644))
@@ -45,7 +48,7 @@ func TestBuildRejectsOutputTraversal(t *testing.T) {
 				}
 				s, err := New(SiteParams{BasePath: base, ConfigPath: config})
 				require.NoError(t, err)
-				require.Error(t, s.Build(BuildOptions{BuildMode: mode, Force: true}))
+				require.ErrorIs(t, s.Build(BuildOptions{BuildMode: mode, Force: true}), fs.ErrInvalid)
 				data, err := os.ReadFile(sentinel)
 				require.NoError(t, err)
 				require.Equal(t, "keep me", string(data))
@@ -63,6 +66,10 @@ func TestBuildRejectsEscapingSourceSymlinks(t *testing.T) {
 			base := filepath.Join(parent, "site")
 			require.NoError(t, os.MkdirAll(filepath.Join(base, "content", "bundle"), 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(base, "content", "bundle", "index.md"), []byte("Body"), 0o644))
+			if source != "templates/page.html" {
+				require.NoError(t, os.MkdirAll(filepath.Join(base, "templates"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(base, "templates", "page.html"), []byte("{{ page.content | safe }}"), 0o644))
+			}
 			outside := filepath.Join(parent, "sentinel")
 			require.NoError(t, os.WriteFile(outside, []byte("private source"), 0o644))
 			config := filepath.Join(base, "zola.toml")

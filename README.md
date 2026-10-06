@@ -291,15 +291,17 @@ Resolution happens in two stages.
 | Feed | feed filename (e.g. `atom.xml`) |
 | Robots | `robots.txt` |
 
-`→` means "fall back to the next if missing or not set".
+For pages and sections, an explicitly configured template name is required to resolve; an unset option moves to the next choice. Taxonomies select the first template that exists.
 
 **Stage 2 — find the template file** for the chosen name:
 
 1. `templates/<name>` — site templates (highest priority)
 2. `themes/<theme>/templates/<name>` — theme templates
-3. Built-in fallback (covers 404, sitemap, atom/RSS feeds, robots.txt, alias redirects)
+3. Built-in fallback (covers taxonomy lists/terms, 404, sitemap, atom/RSS feeds, robots.txt, alias redirects)
 
 Site templates always override theme templates. The built-ins only apply if neither the site nor the theme provides the template.
+
+Once a template is selected, rendering errors fail the build with template and output context. A broken override does not fall back to another template. Pages and sections require their selected templates; `kopkop init` supplies starter templates. Pages with `render = false` still render Markdown for use by other templates, but skip their output template. During development, a failed rebuild is logged and does not send a reload notification.
 
 ### Template Variables
 

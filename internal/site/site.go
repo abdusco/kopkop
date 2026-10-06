@@ -260,8 +260,11 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 			pg := s.Library.Pages[rel]
 			outPath := filepath.Join(strings.TrimPrefix(pg.Path, "/"), "index.html")
 			if strings.TrimSpace(pg.Meta.RedirectTo) != "" {
-				redirect := s.renderRedirect(s.redirectTargetURL(pg.Meta.RedirectTo))
-				return pageRenderArtifact{Source: rel, Path: outPath, HTML: injectLiveReload(redirect, liveReloadURL), Page: pg}
+				redirect, err := s.renderRedirect(s.redirectTargetURL(pg.Meta.RedirectTo))
+				if err != nil {
+					err = fmt.Errorf("render page redirect %q to %q: %w", rel, outPath, err)
+				}
+				return pageRenderArtifact{Source: rel, Path: outPath, HTML: injectLiveReload(redirect, liveReloadURL), Page: pg, Err: err}
 			}
 
 			tplName := s.pageTemplateFor(pg)
@@ -520,7 +523,10 @@ func (s *Site) renderSections(liveReloadURL string) error {
 		for _, plan := range s.sectionRenderPlans(sec, entries) {
 			if strings.TrimSpace(sec.Meta.RedirectTo) != "" {
 				if plan.OutputPath == filepath.Join(strings.TrimPrefix(sec.Path, "/"), "index.html") {
-					redirect := s.renderRedirect(s.redirectTargetURL(sec.Meta.RedirectTo))
+					redirect, err := s.renderRedirect(s.redirectTargetURL(sec.Meta.RedirectTo))
+					if err != nil {
+						return fmt.Errorf("render section redirect %q to %q: %w", rel, plan.OutputPath, err)
+					}
 					if err := s.writeOutput(plan.OutputPath, injectLiveReload(redirect, liveReloadURL)); err != nil {
 						return err
 					}
@@ -566,9 +572,9 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			if paginatePath == "" {
 				paginatePath = "page"
 			}
-			redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": sec.Permalink})
+			redirect, err := s.renderRedirect(sec.Permalink)
 			if err != nil {
-				redirect = "<meta http-equiv=\"refresh\" content=\"0; url=" + sec.Permalink + "\">"
+				return fmt.Errorf("render pagination alias for section %q: %w", rel, err)
 			}
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), paginatePath, "1", "index.html"), redirect); err != nil {
 				return err
@@ -686,12 +692,8 @@ func (s *Site) redirectTargetURL(target string) string {
 	return strings.TrimRight(s.Config.BaseURL, "/") + p
 }
 
-func (s *Site) renderRedirect(url string) string {
-	redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": url})
-	if err == nil {
-		return redirect
-	}
-	return "<meta http-equiv=\"refresh\" content=\"0; url=" + url + "\">"
+func (s *Site) renderRedirect(url string) (string, error) {
+	return s.Templates.Render("__zola_builtins/internal/alias.html", map[string]any{"url": url})
 }
 
 func (s *Site) renderFirstTemplate(candidates []string, ctx map[string]any) (string, error) {
@@ -699,12 +701,9 @@ func (s *Site) renderFirstTemplate(candidates []string, ctx map[string]any) (str
 		if !s.templateExists(name) {
 			continue
 		}
-		out, err := s.Templates.Render(name, ctx)
-		if err == nil {
-			return out, nil
-		}
+		return s.Templates.Render(name, ctx)
 	}
-	return "", fmt.Errorf("no matching template")
+	return "", fmt.Errorf("no matching template among %q", candidates)
 }
 
 type sectionRenderPlan struct {
@@ -900,19 +899,7 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 			"taxonomy_list.html",
 		}, ctxList)
 		if listErr != nil {
-			var b strings.Builder
-			b.WriteString("\n")
-			for _, term := range termItems {
-				b.WriteString("    ")
-				b.WriteString(term["name"].(string))
-				b.WriteString("  ")
-				b.WriteString(term["slug"].(string))
-				b.WriteString(" ")
-				b.WriteString(strconv.Itoa(term["count"].(int)))
-				b.WriteString("\n")
-			}
-			b.WriteString("\n")
-			listHTML = b.String()
+			return fmt.Errorf("render taxonomy %q list to %q: %w", tax.Name, taxListPath+"index.html", listErr)
 		}
 		listHTML = injectLiveReload(listHTML, liveReloadURL)
 		if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxListPath, "/"), "index.html"), listHTML); err != nil {
@@ -942,11 +929,7 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 				"taxonomy_single.html",
 			}, ctx)
 			if err != nil {
-				html = "Category: " + termName + "\n\n\n"
-				for _, entry := range entries {
-					html += "    <article>\n        <h3 class=\"post__title\"><a href=\"" + fmt.Sprint(entry["permalink"]) + "\">" + fmt.Sprint(entry["title"]) + "</a></h3>\n    </article>\n"
-				}
-				html += "\n"
+				return fmt.Errorf("render taxonomy %q term %q to %q: %w", tax.Name, termName, taxPath+"index.html", err)
 			}
 			html = injectLiveReload(html, liveReloadURL)
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxPath, "/"), "index.html"), html); err != nil {
@@ -1347,7 +1330,7 @@ func (s *Site) taxonomyFeedEnabled(name string) bool {
 func (s *Site) render404(liveReloadURL string) error {
 	content, err := s.Templates.Render("404.html", map[string]any{"config": s.Config.TemplateView()})
 	if err != nil {
-		content = "<html><body><h1>404</h1></body></html>"
+		return fmt.Errorf("render 404.html: %w", err)
 	}
 	content = injectLiveReload(content, liveReloadURL)
 	return s.writeOutput("404.html", content)
@@ -1356,17 +1339,17 @@ func (s *Site) render404(liveReloadURL string) error {
 func (s *Site) renderRobots() error {
 	content, err := s.Templates.Render("robots.txt", map[string]any{"config": s.Config.TemplateView()})
 	if err != nil {
-		content = "User-agent: *\nAllow: /\n"
+		return fmt.Errorf("render robots.txt: %w", err)
 	}
 	return s.writeOutput("robots.txt", content)
 }
 
 func (s *Site) renderAliases() error {
-	for _, sec := range s.Library.Sections {
+	for rel, sec := range s.Library.Sections {
 		for _, alias := range sec.Meta.Aliases {
-			redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": sec.Permalink})
+			redirect, err := s.renderRedirect(sec.Permalink)
 			if err != nil {
-				redirect = "<meta http-equiv=\"refresh\" content=\"0; url=" + sec.Permalink + "\">"
+				return fmt.Errorf("render alias %q for section %q: %w", alias, rel, err)
 			}
 			aliasPath := strings.TrimPrefix(alias, "/")
 			file := "index.html"
@@ -1383,14 +1366,14 @@ func (s *Site) renderAliases() error {
 		}
 	}
 
-	for _, p := range s.Library.Pages {
+	for rel, p := range s.Library.Pages {
 		if p.Meta.Render != nil && !*p.Meta.Render {
 			continue
 		}
 		for _, alias := range p.Meta.Aliases {
-			redirect, err := s.Templates.Engine.Render("__zola_builtins/internal/alias.html", map[string]any{"url": p.Permalink})
+			redirect, err := s.renderRedirect(p.Permalink)
 			if err != nil {
-				redirect = "<meta http-equiv=\"refresh\" content=\"0; url=" + p.Permalink + "\">"
+				return fmt.Errorf("render alias %q for page %q: %w", alias, rel, err)
 			}
 			aliasPath := strings.TrimPrefix(alias, "/")
 			file := "index.html"

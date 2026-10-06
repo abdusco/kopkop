@@ -259,7 +259,11 @@ func (m *Manager) Render(name string, data map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return m.Engine.Render(resolved, data)
+	out, err := m.Engine.Render(resolved, data)
+	if err != nil {
+		return "", fmt.Errorf("render template %q: %w", resolved, err)
+	}
+	return out, nil
 }
 
 type ShortcodeDefinition struct {

@@ -49,6 +49,31 @@ func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 	assert.Equal(t, "hyde/templates/shortcodes/pirate.html", def.Template)
 }
 
+func TestManagerReportsResolvedTemplateErrors(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		files    map[string][]byte
+		resolved string
+	}{
+		{name: "site override", files: map[string][]byte{"templates/page.html": []byte("{{ broken() }}"), "themes/demo/templates/page.html": []byte("OK")}, resolved: "page.html"},
+		{name: "theme override", files: map[string][]byte{"themes/demo/templates/page.html": []byte("{{ broken() }}")}, resolved: "page.html"},
+		{name: "explicit theme name", files: map[string][]byte{"themes/demo/templates/page.html": []byte("{{ broken() }}")}, resolved: "demo/templates/page.html"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fys := newMemoryFS(tc.files)
+			mgr, err := LoadManagerFS(fys, fys, "demo")
+			require.NoError(t, err)
+			out, err := mgr.Render(tc.resolved, nil)
+			require.Empty(t, out)
+			require.ErrorContains(t, err, `render template "`+tc.resolved+`"`)
+			require.ErrorContains(t, err, "unknown function")
+			require.ErrorContains(t, err, "line 1")
+		})
+	}
+}
+
 func TestTemplateFileHelpersRejectEscapes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
