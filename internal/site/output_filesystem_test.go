@@ -106,6 +106,10 @@ func TestMemoryBuildDoesNotCreateOutputDirectory(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte("base_url='https://example.com'\nbuild_search_index=true"), 0o644))
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
+	for _, mode := range []BuildMode{-1, 3} {
+		require.ErrorContains(t, s.Build(BuildOptions{BuildMode: mode}), "invalid build mode")
+		require.NoDirExists(t, s.OutputPath)
+	}
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildMemory}))
 	require.NoDirExists(t, s.OutputPath)
 	require.IsType(t, &filesystem.MemoryFS{}, s.OutputFS)

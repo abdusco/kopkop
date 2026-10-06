@@ -140,6 +140,9 @@ func (s *Site) Load(includeDrafts bool) error {
 }
 
 func (s *Site) Build(opts BuildOptions) error {
+	if opts.BuildMode < BuildDisk || opts.BuildMode > BuildBoth {
+		return fmt.Errorf("invalid build mode: %d", opts.BuildMode)
+	}
 	if err := validateOutputPath(s.BasePath, s.ConfigPath, s.OutputPath, s.Config.ExtraWatchPaths); err != nil {
 		return err
 	}
