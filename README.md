@@ -106,7 +106,9 @@ Starts a local dev server with filesystem watching and WebSocket live reload.
 | `--store-html` | `false` | Also write HTML to disk (default: memory only) |
 | `--fast` | `false` | Fast rebuild mode |
 
-By default, generated HTML is served from memory without writing to disk. The server watches `content/`, `templates/`, `static/`, and the config file for changes. Extra paths can be added via `extra_watch_paths` in the config.
+By default, generated files are served from memory without writing to disk. The server watches `content/`, `templates/`, `static/`, `data/`, and `themes/` recursively, plus the config file. Newly created directories are registered automatically. Extra paths can be added via `extra_watch_paths`, resolved against the site root; build output and repository metadata are excluded.
+
+Each rebuild reloads configuration, templates, and content into a fresh site. Requests use the last successful snapshot while rebuilding, and errors leave that snapshot available without sending a reload notification. With `--store-html`, the completed snapshot is also staged on disk before replacing the previous output directory. Ctrl-C closes the watcher, HTTP server, and live-reload WebSockets.
 
 Live reload is injected automatically via a WebSocket endpoint at `/__livereload`.
 

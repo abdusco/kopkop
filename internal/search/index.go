@@ -20,6 +20,10 @@ type Entry struct {
 }
 
 func BuildIndex(lib *content.Library, outputPath string, filename string) error {
+	return BuildIndexFS(lib, filesystem.NewDiskFS(outputPath), filename)
+}
+
+func BuildIndexFS(lib *content.Library, output filesystem.FileSystem, filename string) error {
 	if err := filesystem.ValidatePath(filename); err != nil {
 		return err
 	}
@@ -61,7 +65,7 @@ func BuildIndex(lib *content.Library, outputPath string, filename string) error 
 	if err != nil {
 		return err
 	}
-	return filesystem.NewDiskFS(outputPath).WriteFile(filename, b, 0o644)
+	return output.WriteFile(filename, b, 0o644)
 }
 
 func stripTags(s string) string {

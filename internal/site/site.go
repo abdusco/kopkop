@@ -50,6 +50,7 @@ type BuildOptions struct {
 }
 
 type Site struct {
+	params       SiteParams
 	BasePath     string
 	ConfigPath   string
 	Config       config.Config
@@ -112,6 +113,7 @@ func New(params SiteParams) (*Site, error) {
 	}
 
 	return &Site{
+		params:       params,
 		BasePath:     params.BasePath,
 		ConfigPath:   params.ConfigPath,
 		Config:       cfg,
@@ -121,6 +123,12 @@ func New(params SiteParams) (*Site, error) {
 		BuildMode:    BuildDisk,
 		MemoryOutput: filesystem.NewMemoryFS(),
 	}, nil
+}
+
+// Reload constructs an independent site with fresh configuration and templates.
+// It preserves construction overrides and leaves the receiver untouched on failure.
+func (s *Site) Reload() (*Site, error) {
+	return New(s.params)
 }
 
 func (s *Site) Load(includeDrafts bool) error {
@@ -145,11 +153,16 @@ func (s *Site) Build(opts BuildOptions) error {
 	if opts.BaseURL != "" {
 		s.Config.BaseURL = opts.BaseURL
 	}
-	s.Templates.ConfigureHelpers()
 	s.BuildMode = opts.BuildMode
+	s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
 	if s.BuildMode == BuildMemory || s.BuildMode == BuildBoth {
 		s.MemoryOutput = filesystem.NewMemoryFS()
 	}
+	if s.BuildMode == BuildMemory {
+		s.OutputFS = s.MemoryOutput
+	}
+	s.Templates.OutputFS = s.OutputFS
+	s.Templates.ConfigureHelpers()
 	if opts.Minify {
 		s.Config.MinifyHTML = true
 	}
@@ -206,7 +219,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if s.Config.BuildSearchIndex || s.Config.Search.BuildIndex {
-		if err := search.BuildIndex(s.Library, s.OutputPath, s.Config.Search.IndexPath); err != nil {
+		if err := search.BuildIndexFS(s.Library, s.OutputFS, s.Config.Search.IndexPath); err != nil {
 			return err
 		}
 	}

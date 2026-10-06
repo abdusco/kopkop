@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -43,7 +44,7 @@ func newWatchPlan(s *site.Site, extra []string) watchPlan {
 
 func within(root, name string) bool {
 	rel, err := filepath.Rel(root, name)
-	return err == nil && rel != ".." && !filepath.IsAbs(rel) && (rel == "." || len(rel) < 3 || rel[:3] != ".."+string(filepath.Separator))
+	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (p watchPlan) ignored(name string) bool {
@@ -145,7 +146,7 @@ func (p watchPlan) sync(w *fsnotify.Watcher) error {
 	}
 	for name := range current {
 		if !wanted[name] {
-			if err := w.Remove(name); err != nil && !os.IsNotExist(err) {
+			if err := w.Remove(name); err != nil && !os.IsNotExist(err) && !errors.Is(err, fsnotify.ErrNonExistentWatch) {
 				return fmt.Errorf("unwatch directory %q: %w", name, err)
 			}
 		}
