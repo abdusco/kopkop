@@ -61,6 +61,8 @@ mysite/
 
 Renders the full site to the output directory.
 
+Output must not overlap the site root, configuration, source directories, repository metadata, or configured watch paths. These checks also apply to `check` and `serve`, including paths resolved through symlinks.
+
 **Flags:**
 
 | Flag | Default | Description |
@@ -335,6 +337,8 @@ Site templates always override theme templates. The built-ins only apply if neit
 When `paginate_by` is set, `paginator` contains: `current_index`, `number_pagers`, `per_page`, `total_pages`, `first`, `last`, `current`, `pages`, and optionally `previous` / `next`.
 
 ### Template Functions
+
+File helpers read within the site root; generated files stay within the output root. Filesystem paths must be relative and cannot escape through `..` or symlinks. Relative symlinks to files within the same root are supported.
 
 | Function | Description |
 |----------|-------------|

@@ -33,6 +33,27 @@ func TestBuildIndex_WritesJSON(t *testing.T) {
 	require.Equal(t, "https://example.com/hello/", entries[0].Permalink)
 }
 
+func TestBuildIndexRejectsEscapingPaths(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"../sentinel", "/sentinel", `..\sentinel`, "link/sentinel"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			parent := t.TempDir()
+			out := filepath.Join(parent, "public")
+			outside := filepath.Join(parent, "outside")
+			require.NoError(t, os.MkdirAll(out, 0o755))
+			require.NoError(t, os.MkdirAll(outside, 0o755))
+			sentinel := filepath.Join(outside, "sentinel")
+			require.NoError(t, os.WriteFile(sentinel, []byte("keep me"), 0o644))
+			require.NoError(t, os.Symlink("../outside", filepath.Join(out, "link")))
+			require.Error(t, BuildIndex(content.NewLibrary(), out, name))
+			data, err := os.ReadFile(sentinel)
+			require.NoError(t, err)
+			require.Equal(t, "keep me", string(data))
+			require.NoFileExists(t, filepath.Join(parent, "sentinel"))
+		})
+	}
+}
 
 func TestStripTags_UsesVisibleTextNodesOnly(t *testing.T) {
 	t.Parallel()

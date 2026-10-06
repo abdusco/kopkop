@@ -11,6 +11,7 @@ import (
 	"github.com/abdusco/kopkop/internal/config"
 	"github.com/abdusco/kopkop/internal/content/frontmatter"
 	"github.com/abdusco/kopkop/internal/content/pathing"
+	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/abdusco/kopkop/internal/markdown"
 	"github.com/samber/lo"
 )
@@ -47,8 +48,9 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 	})
 
 	loaded := make([]loadedContent, 0, len(files))
+	sourceFS := filesystem.NewDiskFS(basePath)
 	for _, file := range files {
-		raw, readErr := os.ReadFile(file.AbsPath)
+		raw, readErr := sourceFS.ReadFile("content/" + file.RelPath)
 		if readErr != nil {
 			return nil, readErr
 		}

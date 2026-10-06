@@ -1,10 +1,11 @@
 package assets
 
 import (
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/abdusco/kopkop/internal/filesystem"
 )
 
 func CleanOutput(path string) error {
@@ -17,45 +18,32 @@ func CleanOutput(path string) error {
 }
 
 func CopyDirectory(src string, dst string) error {
-	if _, err := os.Stat(src); err != nil {
+	return CopyDirectoryFS(filesystem.NewDiskFS(src), ".", filesystem.NewDiskFS(dst))
+}
+
+func CopyDirectoryFS(sourceFS filesystem.FileSystem, src string, outputFS filesystem.FileSystem) error {
+	if _, err := sourceFS.Stat(src); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
 
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(sourceFS, src, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, path)
+		rel, err := filepath.Rel(filepath.FromSlash(src), filepath.FromSlash(name))
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(dst, rel)
 		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
+			return outputFS.MkdirAll(filepath.ToSlash(rel), 0o755)
 		}
-		return copyFile(path, target)
+		data, err := sourceFS.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		return outputFS.WriteFile(filepath.ToSlash(rel), data, 0o644)
 	})
-}
-
-func copyFile(src string, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return nil
 }

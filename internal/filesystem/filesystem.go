@@ -29,36 +29,101 @@ func NewDiskFS(root string) *DiskFS {
 	return &DiskFS{Root: root}
 }
 
-func (f *DiskFS) full(name string) string {
-	return filepath.Join(f.Root, filepath.FromSlash(name))
+// ValidatePath requires slash-separated io/fs paths. Reject native separators
+// and drive prefixes too, so a path has the same meaning on every platform.
+func ValidatePath(name string) error {
+	if !fs.ValidPath(name) || strings.Contains(name, "\\") || strings.ContainsRune(name, 0) || (len(name) >= 2 && name[1] == ':') {
+		return &fs.PathError{Op: "validate", Path: name, Err: fs.ErrInvalid}
+	}
+	return nil
+}
+
+func (f *DiskFS) openRoot(create bool) (*os.Root, error) {
+	if create {
+		if err := os.MkdirAll(f.Root, 0o755); err != nil {
+			return nil, err
+		}
+	}
+	return os.OpenRoot(f.Root)
 }
 
 func (f *DiskFS) Open(name string) (fs.File, error) {
-	return os.Open(f.full(name))
+	if err := ValidatePath(name); err != nil {
+		return nil, err
+	}
+	root, err := f.openRoot(false)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.Open(filepath.FromSlash(name))
 }
 
 func (f *DiskFS) ReadFile(name string) ([]byte, error) {
-	return os.ReadFile(f.full(name))
+	if err := ValidatePath(name); err != nil {
+		return nil, err
+	}
+	root, err := f.openRoot(false)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(filepath.FromSlash(name))
 }
 
 func (f *DiskFS) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	full := f.full(name)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := ValidatePath(name); err != nil {
 		return err
 	}
-	return os.WriteFile(full, data, perm)
+	root, err := f.openRoot(true)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	local := filepath.FromSlash(name)
+	if err := root.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		return err
+	}
+	return root.WriteFile(local, data, perm)
 }
 
 func (f *DiskFS) MkdirAll(name string, perm fs.FileMode) error {
-	return os.MkdirAll(f.full(name), perm)
+	if err := ValidatePath(name); err != nil {
+		return err
+	}
+	root, err := f.openRoot(true)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.MkdirAll(filepath.FromSlash(name), perm)
 }
 
 func (f *DiskFS) Stat(name string) (fs.FileInfo, error) {
-	return os.Stat(f.full(name))
+	if err := ValidatePath(name); err != nil {
+		return nil, err
+	}
+	root, err := f.openRoot(false)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.Stat(filepath.FromSlash(name))
 }
 
 func (f *DiskFS) RemoveAll(name string) error {
-	return os.RemoveAll(f.full(name))
+	if err := ValidatePath(name); err != nil {
+		return err
+	}
+	root, err := f.openRoot(false)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.RemoveAll(filepath.FromSlash(name))
 }
 
 type MemoryFS struct {
@@ -75,14 +140,10 @@ func NewMemoryFS() *MemoryFS {
 }
 
 func normalize(name string) (string, error) {
-	clean := path.Clean(strings.TrimPrefix(strings.ReplaceAll(name, "\\", "/"), "/"))
-	if clean == "." || clean == "" {
-		return ".", nil
+	if err := ValidatePath(name); err != nil {
+		return "", err
 	}
-	if strings.HasPrefix(clean, "../") {
-		return "", fs.ErrInvalid
-	}
-	return clean, nil
+	return name, nil
 }
 
 func (m *MemoryFS) Open(name string) (fs.File, error) {

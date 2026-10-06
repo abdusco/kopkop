@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -45,6 +47,37 @@ func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 	def, ok := defs["pirate"]
 	require.True(t, ok)
 	assert.Equal(t, "hyde/templates/shortcodes/pirate.html", def.Template)
+}
+
+func TestTemplateFileHelpersRejectEscapes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		template string
+	}{
+		{name: "load data traversal", template: `{{ load_data("../private") }}`},
+		{name: "load data symlink", template: `{{ load_data("link") }}`},
+		{name: "image metadata traversal", template: `{{ get_image_metadata("../private") }}`},
+		{name: "image metadata symlink", template: `{{ get_image_metadata("link") }}`},
+		{name: "resize traversal", template: `{{ resize_image("../private", 1, 1) }}`},
+		{name: "resize symlink", template: `{{ resize_image("link", 1, 1) }}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			parent := t.TempDir()
+			root := filepath.Join(parent, "site")
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(parent, "private"), mustPNG(2, 2), 0o644))
+			require.NoError(t, os.Symlink("../private", filepath.Join(root, "link")))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "probe.txt"), []byte(tc.template), 0o644))
+			mgr, err := LoadManagerFS(filesystem.NewDiskFS(root), filesystem.NewDiskFS(filepath.Join(root, "public")), "")
+			require.NoError(t, err)
+			_, err = mgr.Render("probe.txt", nil)
+			require.Error(t, err)
+			require.NoDirExists(t, filepath.Join(root, "public"))
+		})
+	}
 }
 
 func TestManagerHelpers(t *testing.T) {

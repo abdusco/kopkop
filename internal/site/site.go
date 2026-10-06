@@ -84,9 +84,10 @@ func New(params SiteParams) (*Site, error) {
 	if err != nil {
 		return nil, err
 	}
+	sourceFS := filesystem.NewDiskFS(params.BasePath)
 	if cfg.Theme != "" {
-		themeToml := filepath.Join(params.BasePath, "themes", cfg.Theme, "theme.toml")
-		if err := cfg.MergeTheme(themeToml); err != nil {
+		themeToml := filepath.ToSlash(filepath.Join("themes", cfg.Theme, "theme.toml"))
+		if err := cfg.MergeThemeFS(sourceFS, themeToml); err != nil {
 			return nil, err
 		}
 	}
@@ -103,7 +104,6 @@ func New(params SiteParams) (*Site, error) {
 		return nil, err
 	}
 
-	sourceFS := filesystem.NewDiskFS(params.BasePath)
 	outputFS := filesystem.NewDiskFS(outputPath)
 
 	tplMgr, err := templates.LoadManagerFS(sourceFS, outputFS, cfg.Theme)
@@ -1122,9 +1122,9 @@ func (s *Site) defaultSitemapXML() string {
 		}
 		urlsSet[p.Permalink] = struct{}{}
 		if p.Updated != nil {
-			lastmods[p.Permalink] = pageSitemapLastmod(p.SourcePath, "updated", p.Meta.Updated, p.Updated)
+			lastmods[p.Permalink] = s.pageSitemapLastmod(p.SourcePath, "updated", p.Meta.Updated, p.Updated)
 		} else if p.Date != nil {
-			lastmods[p.Permalink] = pageSitemapLastmod(p.SourcePath, "date", p.Meta.Date, p.Date)
+			lastmods[p.Permalink] = s.pageSitemapLastmod(p.SourcePath, "date", p.Meta.Date, p.Date)
 		}
 	}
 	for _, sec := range s.Library.Sections {
@@ -1203,11 +1203,11 @@ func formatSitemapDate(raw any, parsed *time.Time) string {
 	return parsed.Format("2006-01-02")
 }
 
-func pageSitemapLastmod(sourcePath string, key string, raw any, parsed *time.Time) string {
+func (s *Site) pageSitemapLastmod(sourcePath string, key string, raw any, parsed *time.Time) string {
 	if parsed == nil {
 		return ""
 	}
-	if lex, ok := extractFrontMatterScalar(sourcePath, key); ok {
+	if lex, ok := s.extractFrontMatterScalar(sourcePath, key); ok {
 		if strings.Contains(strings.ToLower(lex), "t") {
 			return parsed.UTC().Format(time.RFC3339)
 		}
@@ -1216,8 +1216,12 @@ func pageSitemapLastmod(sourcePath string, key string, raw any, parsed *time.Tim
 	return formatSitemapDate(raw, parsed)
 }
 
-func extractFrontMatterScalar(sourcePath string, key string) (string, bool) {
-	b, err := os.ReadFile(sourcePath)
+func (site *Site) extractFrontMatterScalar(sourcePath string, key string) (string, bool) {
+	rel, err := filepath.Rel(site.BasePath, sourcePath)
+	if err != nil {
+		return "", false
+	}
+	b, err := site.Templates.SourceFS.ReadFile(filepath.ToSlash(rel))
 	if err != nil {
 		return "", false
 	}
@@ -1394,14 +1398,16 @@ func (s *Site) renderAliases() error {
 }
 
 func (s *Site) copyStatic() error {
-	staticDir := filepath.Join(s.BasePath, "static")
+	if s.OutputFS == nil {
+		s.OutputFS = filesystem.NewDiskFS(s.OutputPath)
+	}
 	if s.Config.Theme != "" {
-		themeStatic := filepath.Join(s.BasePath, "themes", s.Config.Theme, "static")
-		if err := assets.CopyDirectory(themeStatic, s.OutputPath); err != nil {
+		themeStatic := filepath.ToSlash(filepath.Join("themes", s.Config.Theme, "static"))
+		if err := assets.CopyDirectoryFS(s.Templates.SourceFS, themeStatic, s.OutputFS); err != nil {
 			return err
 		}
 	}
-	return assets.CopyDirectory(staticDir, s.OutputPath)
+	return assets.CopyDirectoryFS(s.Templates.SourceFS, "static", s.OutputFS)
 }
 
 func (s *Site) copyColocatedAssets() error {
@@ -1409,7 +1415,11 @@ func (s *Site) copyColocatedAssets() error {
 		for _, asset := range p.Assets {
 			relName := filepath.Base(asset)
 			destDir := filepath.ToSlash(strings.TrimPrefix(p.Path, "/"))
-			b, err := os.ReadFile(asset)
+			assetPath, err := filepath.Rel(s.BasePath, asset)
+			if err != nil {
+				return err
+			}
+			b, err := s.Templates.SourceFS.ReadFile(filepath.ToSlash(assetPath))
 			if err != nil {
 				return err
 			}
@@ -1438,11 +1448,9 @@ func (s *Site) copyColocatedAssets() error {
 }
 
 func (s *Site) writeOutput(rel string, content string) error {
-	rel = filepath.Clean(rel)
-	if strings.HasPrefix(rel, "../") {
-		return fmt.Errorf("invalid output path %q", rel)
+	if err := filesystem.ValidatePath(filepath.ToSlash(rel)); err != nil {
+		return fmt.Errorf("invalid output path %q: %w", rel, err)
 	}
-	rel = strings.TrimPrefix(rel, "/")
 	lowerRel := strings.ToLower(rel)
 
 	if strings.HasSuffix(lowerRel, ".html") {

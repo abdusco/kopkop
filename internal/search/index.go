@@ -3,12 +3,11 @@ package search
 import (
 	"encoding/json"
 	stdhtml "html"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/abdusco/kopkop/internal/content"
+	"github.com/abdusco/kopkop/internal/filesystem"
 	"github.com/samber/lo"
 	"golang.org/x/net/html"
 )
@@ -21,6 +20,9 @@ type Entry struct {
 }
 
 func BuildIndex(lib *content.Library, outputPath string, filename string) error {
+	if err := filesystem.ValidatePath(filename); err != nil {
+		return err
+	}
 	var entries []Entry
 	permalinkSeen := map[string]struct{}{}
 	paths := lo.Keys(lib.Pages)
@@ -59,11 +61,7 @@ func BuildIndex(lib *content.Library, outputPath string, filename string) error 
 	if err != nil {
 		return err
 	}
-	dst := filepath.Join(outputPath, filename)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, b, 0o644)
+	return filesystem.NewDiskFS(outputPath).WriteFile(filename, b, 0o644)
 }
 
 func stripTags(s string) string {

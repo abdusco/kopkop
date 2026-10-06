@@ -3,12 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/abdusco/kopkop/internal/filesystem"
 )
 
 type LinkCheckerLevel string
@@ -164,17 +166,22 @@ func FromFile(filename string) (Config, error) {
 }
 
 func (c *Config) MergeTheme(themeTomlPath string) error {
+	return c.MergeThemeFS(filesystem.NewDiskFS(filepath.Dir(themeTomlPath)), filepath.Base(themeTomlPath))
+}
+
+func (c *Config) MergeThemeFS(sourceFS fs.FS, themeTomlPath string) error {
 	if c.Theme == "" {
 		return nil
 	}
-	if _, err := os.Stat(themeTomlPath); err != nil {
+	b, err := fs.ReadFile(sourceFS, themeTomlPath)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
 	}
 	var themeCfg Config
-	if _, err := toml.DecodeFile(themeTomlPath, &themeCfg); err != nil {
+	if _, err := toml.Decode(string(b), &themeCfg); err != nil {
 		return fmt.Errorf("parse theme config %q: %w", themeTomlPath, err)
 	}
 
@@ -194,6 +201,11 @@ func (c *Config) MergeTheme(themeTomlPath string) error {
 }
 
 func (c Config) Validate() error {
+	if c.Theme != "" {
+		if err := filesystem.ValidatePath(c.Theme); err != nil {
+			return fmt.Errorf("invalid theme path: %w", err)
+		}
+	}
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return errors.New("base_url must not be empty")
 	}

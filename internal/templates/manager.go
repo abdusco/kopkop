@@ -146,6 +146,11 @@ func LoadManager(basePath string, theme string) (*Manager, error) {
 }
 
 func LoadManagerFS(sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem, theme string) (*Manager, error) {
+	if theme != "" {
+		if err := filesystem.ValidatePath(theme); err != nil {
+			return nil, fmt.Errorf("invalid theme path: %w", err)
+		}
+	}
 	eng := NewEngine()
 	eng.EnableRelativeTemplateResolution()
 
