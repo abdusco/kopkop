@@ -151,6 +151,10 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if opts.BaseURL != "" {
+		if opts.BaseURL != s.Config.BaseURL {
+			// Derived permalinks must be rebuilt using the effective configuration.
+			s.Library = nil
+		}
 		s.Config.BaseURL = opts.BaseURL
 	}
 	s.BuildMode = opts.BuildMode
