@@ -99,6 +99,9 @@ func New(params SiteParams) (*Site, error) {
 	if !filepath.IsAbs(outputPath) {
 		outputPath = filepath.Join(params.BasePath, outputPath)
 	}
+	if err := validateOutputPath(params.BasePath, params.ConfigPath, outputPath, cfg.ExtraWatchPaths); err != nil {
+		return nil, err
+	}
 
 	sourceFS := filesystem.NewDiskFS(params.BasePath)
 	outputFS := filesystem.NewDiskFS(outputPath)
@@ -130,6 +133,9 @@ func (s *Site) Load(includeDrafts bool) error {
 }
 
 func (s *Site) Build(opts BuildOptions) error {
+	if err := validateOutputPath(s.BasePath, s.ConfigPath, s.OutputPath, s.Config.ExtraWatchPaths); err != nil {
+		return err
+	}
 	s.highlightCSSPath = ""
 	s.highlightCSSWritten = false
 	if strings.TrimSpace(s.Config.Markdown.HighlightTheme) != "" {
@@ -159,6 +165,10 @@ func (s *Site) Build(opts BuildOptions) error {
 			if _, err := os.Stat(s.OutputPath); err == nil {
 				return fmt.Errorf("directory %q already exists; use --force to overwrite", s.OutputPath)
 			}
+		}
+		// Recheck immediately before deletion, including symlinks changed since New.
+		if err := validateOutputPath(s.BasePath, s.ConfigPath, s.OutputPath, s.Config.ExtraWatchPaths); err != nil {
+			return err
 		}
 		if err := assets.CleanOutput(s.OutputPath); err != nil {
 			return err
