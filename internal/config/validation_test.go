@@ -22,6 +22,7 @@ func TestValidateConfiguration(t *testing.T) {
 		{"fragment", func(c *Config) { c.BaseURL = "https://example.com/#top" }, "fragment"},
 		{"credentials", func(c *Config) { c.BaseURL = "https://user@example.com" }, "credentials"},
 		{"severity", func(c *Config) { c.LinkChecker.InternalLevel = "ignore" }, "internal_level"},
+		{"external severity", func(c *Config) { c.LinkChecker.ExternalLevel = "ignore" }, "external_level"},
 		{"zero timeout", func(c *Config) { c.LinkChecker.TimeoutSeconds = 0 }, "timeout_seconds"},
 		{"negative timeout", func(c *Config) { c.LinkChecker.TimeoutSeconds = -1 }, "timeout_seconds"},
 		{"search escape", func(c *Config) { c.Search.IndexPath = "../index.json" }, "index_path"},

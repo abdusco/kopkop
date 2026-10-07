@@ -258,7 +258,12 @@ func (s *Site) Build(opts BuildOptions) error {
 }
 
 func (s *Site) CheckExternalLinks() ([]linkcheck.Result, error) {
-	return linkcheck.CheckExternalLinks(s.Library, s.Config.LinkChecker)
+	results, err := s.CheckLinks()
+	return lo.Filter(results, func(r linkcheck.Result, _ int) bool { return !r.Internal }), err
+}
+
+func (s *Site) CheckLinks() ([]linkcheck.Result, error) {
+	return linkcheck.CheckOutput(s.OutputFS, s.Config.BaseURL, s.Config.LinkChecker)
 }
 
 type pageRenderArtifact struct {
@@ -499,12 +504,13 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 		return markdown.Rendered{}, err
 	}
 	rendered, err := markdown.RenderContent(contentWithMD, markdown.RenderContext{
-		Permalinks:               s.Library.Permalinks,
-		CurrentPagePath:          relativePath,
-		CurrentPagePermalink:     permalink,
-		InsertAnchorLinks:        anchors,
-		ExternalLinksTargetBlank: s.Config.Markdown.ExternalLinksTargetBlank,
-		HighlightTheme:           s.Config.Markdown.HighlightTheme,
+		Permalinks:                s.Library.Permalinks,
+		CurrentPagePath:           relativePath,
+		CurrentPagePermalink:      permalink,
+		InsertAnchorLinks:         anchors,
+		ExternalLinksTargetBlank:  s.Config.Markdown.ExternalLinksTargetBlank,
+		HighlightTheme:            s.Config.Markdown.HighlightTheme,
+		AllowMissingInternalLinks: s.Config.LinkChecker.InternalLevel == config.LinkCheckerWarn,
 	})
 	if err != nil {
 		return markdown.Rendered{}, err

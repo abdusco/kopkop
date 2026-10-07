@@ -108,10 +108,42 @@ output_dir = "public"
 
 [link_checker]
 internal_level = "warn"
+external_level = "warn"
 timeout_seconds = 2
 use_cache = false
 `)), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "link.md"), []byte("+++\ntitle='Link'\n+++\n[broken]("+ts.URL+")"), 0o644))
 
 	require.NoError(t, runCheck([]string{"--root", root}))
+}
+
+func TestRunCheckSeverityPolicies(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) }))
+	defer ts.Close()
+	for _, tc := range []struct {
+		name, internal, external, html, markdown string
+		wantErr                                  bool
+	}{
+		{"external error independent", "warn", "error", `<a href="` + ts.URL + `">bad</a>`, "", true},
+		{"external warning independent", "error", "warn", `<a href="` + ts.URL + `">bad</a>`, "", false},
+		{"internal error independent", "error", "warn", `<a href='/missing/'>bad</a>`, "", true},
+		{"internal warning independent", "warn", "error", `<a href='/missing/'>bad</a>`, "", false},
+		{"internal anchor error", "error", "warn", `{{ page.content | safe }}`, "[bad](@/link.md#missing)", true},
+		{"missing content warning", "warn", "error", `{{ page.content | safe }}`, "[bad](@/missing.md)", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "site")
+			require.NoError(t, runInit([]string{root}))
+			cfg := fmt.Sprintf("base_url='https://example.com'\n[link_checker]\ninternal_level='%s'\nexternal_level='%s'\nuse_cache=false\n", tc.internal, tc.external)
+			require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(cfg), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "templates/page.html"), []byte(tc.html), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "content/link.md"), []byte(tc.markdown), 0o644))
+			err := runCheck([]string{"--root", root})
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

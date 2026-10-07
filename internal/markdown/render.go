@@ -43,12 +43,13 @@ type Rendered struct {
 }
 
 type RenderContext struct {
-	Permalinks               map[string]string
-	CurrentPagePath          string
-	CurrentPagePermalink     string
-	InsertAnchorLinks        bool
-	ExternalLinksTargetBlank bool
-	HighlightTheme           string
+	Permalinks                map[string]string
+	CurrentPagePath           string
+	CurrentPagePermalink      string
+	InsertAnchorLinks         bool
+	ExternalLinksTargetBlank  bool
+	HighlightTheme            string
+	AllowMissingInternalLinks bool
 }
 
 func RenderContent(content string, ctx RenderContext) (Rendered, error) {
@@ -348,6 +349,9 @@ func resolveInternalLink(link string, ctx RenderContext) (resolved string, err e
 	mdPath, hash := splitLinkAnchor(strings.TrimPrefix(link, "@/"))
 	permalink, ok := ctx.Permalinks[mdPath]
 	if !ok {
+		if ctx.AllowMissingInternalLinks {
+			return link, nil
+		}
 		return "", fmt.Errorf("broken relative link %q", link)
 	}
 

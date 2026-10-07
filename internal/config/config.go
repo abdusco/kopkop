@@ -26,6 +26,7 @@ const (
 
 type LinkChecker struct {
 	InternalLevel      LinkCheckerLevel `toml:"internal_level"`
+	ExternalLevel      LinkCheckerLevel `toml:"external_level"`
 	SkipAnchorPrefixes []string         `toml:"skip_anchor_prefixes"`
 	TimeoutSeconds     int              `toml:"timeout_seconds"`
 	CacheFile          string           `toml:"cache_file"`
@@ -162,6 +163,7 @@ func Default() Config {
 		},
 		LinkChecker: LinkChecker{
 			InternalLevel:      LinkCheckerError,
+			ExternalLevel:      LinkCheckerError,
 			SkipAnchorPrefixes: []string{},
 			TimeoutSeconds:     10,
 			CacheFile:          ".kopkop-linkcheck-cache.json",
@@ -237,6 +239,7 @@ func (c *Config) Validate() error {
 	c.BaseURL = strings.TrimSpace(c.BaseURL)
 	c.LinkStrategy = strings.ToLower(strings.TrimSpace(c.LinkStrategy))
 	c.LinkChecker.InternalLevel = LinkCheckerLevel(strings.ToLower(strings.TrimSpace(string(c.LinkChecker.InternalLevel))))
+	c.LinkChecker.ExternalLevel = LinkCheckerLevel(strings.ToLower(strings.TrimSpace(string(c.LinkChecker.ExternalLevel))))
 	if c.Theme != "" {
 		if err := filesystem.ValidatePath(c.Theme); err != nil {
 			return fmt.Errorf("invalid theme path: %w", err)
@@ -277,6 +280,11 @@ func (c *Config) Validate() error {
 	case LinkCheckerWarn, LinkCheckerError:
 	default:
 		return errors.New("link_checker.internal_level must be one of: warn, error")
+	}
+	switch c.LinkChecker.ExternalLevel {
+	case LinkCheckerWarn, LinkCheckerError:
+	default:
+		return errors.New("link_checker.external_level must be one of: warn, error")
 	}
 	if c.LinkChecker.TimeoutSeconds <= 0 {
 		return errors.New("link_checker.timeout_seconds must be positive")

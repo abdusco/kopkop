@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,10 +22,12 @@ import (
 )
 
 type Result struct {
-	URL    string
-	OK     bool
-	Status int
-	Error  string
+	URL      string
+	OK       bool
+	Status   int
+	Error    string
+	Internal bool   `json:",omitempty"`
+	Source   string `json:",omitempty"`
 }
 
 type cacheEntry struct {
@@ -53,7 +56,7 @@ func CheckExternalLinks(lib *content.Library, cfg config.LinkChecker) ([]Result,
 			return nil, fmt.Errorf("read link-check cache %q: %w", cfg.CacheFile, err)
 		}
 	}
-	policyBytes, _ := json.Marshal(cfg.SkipAnchorPrefixes)
+	policyBytes, _ := json.Marshal([]any{"html-anchors-v2", cfg.SkipAnchorPrefixes})
 	policy := fmt.Sprintf("%x", sha256.Sum256(policyBytes))
 	now := time.Now()
 	ttl := time.Duration(cfg.CacheTTLSeconds) * time.Second
@@ -112,7 +115,8 @@ func checkURL(client *http.Client, link string, cfg config.LinkChecker) Result {
 		return res
 	}
 
-	checkAnchor := strings.Contains(link, "#")
+	u, err := url.Parse(link)
+	checkAnchor := err == nil && u.Fragment != ""
 	for _, p := range cfg.SkipAnchorPrefixes {
 		if strings.HasPrefix(link, p) {
 			checkAnchor = false
@@ -125,8 +129,11 @@ func checkURL(client *http.Client, link string, cfg config.LinkChecker) Result {
 		if readErr != nil {
 			return Result{URL: link, OK: false, Status: resp.StatusCode, Error: readErr.Error()}
 		}
-		anchor := link[strings.Index(link, "#")+1:]
-		if anchor != "" && !strings.Contains(string(body), `id="`+anchor+`"`) {
+		doc, parseErr := parseHTML(body)
+		if parseErr != nil {
+			return Result{URL: link, Status: resp.StatusCode, Error: parseErr.Error()}
+		}
+		if !doc.anchors[u.Fragment] {
 			return Result{URL: link, OK: false, Status: resp.StatusCode, Error: "anchor not found"}
 		}
 	}

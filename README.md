@@ -126,7 +126,7 @@ Live reload is injected automatically via a WebSocket endpoint at `/__livereload
 
 ### `check`
 
-Builds the site and then verifies all external links found in the rendered content.
+Builds the site and verifies links in all generated HTML, including sections, shortcodes, templates, and autolinks. Internal links and assets must resolve to generated output; HTML fragments must match an ID or a named anchor. External HTTP(S) links are fetched, and URL-decoded fragments are checked against parsed HTML. Other schemes such as `mailto:`, `data:`, and `tel:` are skipped.
 
 **Flags:**
 
@@ -136,7 +136,7 @@ Builds the site and then verifies all external links found in the rendered conte
 | `--drafts` | `false` | Include drafts |
 | `--refresh-links` | `false` | Recheck all external links, ignoring cached results |
 
-Exit code is non-zero if broken links are found (unless `link_checker.internal_level = "warn"`).
+Broken links produce a non-zero exit code according to `link_checker.internal_level` and `link_checker.external_level`, each defaulting to `"error"`. Set either policy to `"warn"` to report that category without failing. Missing `@/` content references also respect the internal policy during rendering.
 
 Successful external checks are cached for `link_checker.cache_ttl_seconds` (default: 86400 seconds). Set it to 0 to recheck every time. Failed checks are always retried. Legacy entries without timestamps and entries checked under a different anchor-skip policy are refreshed. Cache read/write errors fail the command; `--refresh-links` can replace a corrupt cache. Cache updates use an atomic file replacement, and results are sorted by URL.
 
@@ -189,6 +189,7 @@ index_path = "search_index.json"
 
 [link_checker]
 internal_level = "error"   # "warn" or "error"
+external_level = "error"   # independent policy for external links
 timeout_seconds = 10
 use_cache = true
 cache_ttl_seconds = 86400  # successful checks only; 0 disables reuse

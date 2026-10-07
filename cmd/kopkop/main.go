@@ -248,29 +248,35 @@ func runCheck(args []string) error {
 		return err
 	}
 	s.Config.LinkChecker.Refresh = *refresh
-	results, err := s.CheckExternalLinks()
+	results, err := s.CheckLinks()
 	if err != nil {
 		return err
 	}
 	failed := 0
-	warnOnly := s.Config.LinkChecker.InternalLevel == config.LinkCheckerWarn
+	warnings := 0
 	for _, r := range results {
 		if !r.OK {
-			failed++
+			level := s.Config.LinkChecker.ExternalLevel
+			if r.Internal {
+				level = s.Config.LinkChecker.InternalLevel
+			}
+			warnOnly := level == config.LinkCheckerWarn
 			if warnOnly {
-				log.Printf("[WARN] %s: %s", r.URL, r.Error)
+				warnings++
+				log.Printf("[WARN] %s (%s): %s", r.URL, r.Source, r.Error)
 			} else {
-				log.Printf("[BAD] %s: %s", r.URL, r.Error)
+				failed++
+				log.Printf("[BAD] %s (%s): %s", r.URL, r.Source, r.Error)
 			}
 		}
 	}
-	if failed > 0 && !warnOnly {
-		return fmt.Errorf("%d broken external links", failed)
+	if failed > 0 {
+		return fmt.Errorf("%d broken links", failed)
 	}
-	if failed == 0 {
-		log.Printf("all external links OK (%d checked)", len(results))
+	if warnings == 0 {
+		log.Printf("all links OK (%d checked)", len(results))
 	} else {
-		log.Printf("link check warnings: %d broken links (%d checked)", failed, len(results))
+		log.Printf("link check warnings: %d broken links (%d checked)", warnings, len(results))
 	}
 	return nil
 }
