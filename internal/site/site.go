@@ -433,7 +433,12 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 }
 
 func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]any) map[string]any {
+	extra := sec.Meta.Extra
+	if extra == nil {
+		extra = map[string]any{}
+	}
 	return map[string]any{
+		"extra":             extra,
 		"title":             sec.Meta.Title,
 		"description":       sec.Meta.Description,
 		"path":              sec.Path,
@@ -643,6 +648,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			"description":       "",
 			"path":              "/",
 			"relative_path":     "_index.md",
+			"extra":             map[string]any{},
 			"permalink":         strings.TrimRight(s.Config.BaseURL, "/") + "/",
 			"pages":             []map[string]any{},
 			"subsections":       []string{},
