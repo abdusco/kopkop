@@ -298,9 +298,7 @@ func (s *Site) renderAllContent() error {
 	sort.Strings(sectionPaths)
 	for _, rel := range sectionPaths {
 		sec := s.Library.Sections[rel]
-		rendered, err := s.renderContentWithShortcodes(sec.RawContent, map[string]any{
-			"title": sec.Meta.Title, "path": sec.Path, "permalink": sec.Permalink,
-		}, "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), defs)
+		rendered, err := s.renderContentWithShortcodes(sec.RawContent, s.sectionView(rel, sec, []map[string]any{}), "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), defs)
 		if err != nil {
 			return fmt.Errorf("render section markdown %q: %w", rel, err)
 		}
@@ -472,23 +470,27 @@ func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[
 }
 
 func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
-	pageCtx := map[string]any{
-		"title":     pg.Meta.Title,
-		"path":      pg.Path,
-		"permalink": pg.Permalink,
-		"toc":       []map[string]any{},
-		"extra":     map[string]any{},
-	}
-	if pg.Meta.Extra != nil {
-		pageCtx["extra"] = pg.Meta.Extra
-	}
-	return s.renderContentWithShortcodes(pg.RawContent, pageCtx, "page", pg.RelativePath, pg.Permalink, s.pageAnchorLinksEnabled(pg), defs)
+	return s.renderContentWithShortcodes(pg.RawContent, s.pageView(pg.RelativePath, pg), "page", pg.RelativePath, pg.Permalink, s.pageAnchorLinksEnabled(pg), defs)
 }
 
 func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any, contextKey, relativePath, permalink string, anchors bool, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
 	out, scs, err := shortcode.Parse(raw)
 	if err != nil {
 		return markdown.Rendered{}, err
+	}
+
+	// Shortcodes see the same config and lookup helpers as page templates.
+	shortcodeContext := func(sc shortcode.Shortcode) map[string]any {
+		ctx := s.baseTemplateContext()
+		ctx["nth"] = sc.Nth
+		ctx[contextKey] = contentCtx
+		for k, v := range sc.Args {
+			ctx[k] = v
+		}
+		if sc.Body != nil {
+			ctx["body"] = strings.TrimRight(*sc.Body, "\n")
+		}
+		return ctx
 	}
 
 	contentWithMD, htmlSCs, err := shortcode.InsertMarkdownShortcodes(out, scs,
@@ -500,15 +502,7 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 			if def.FileType != "md" {
 				return shortcode.Placeholder, nil
 			}
-			ctx := map[string]any{"nth": sc.Nth}
-			ctx[contextKey] = contentCtx
-			for k, v := range sc.Args {
-				ctx[k] = v
-			}
-			if sc.Body != nil {
-				ctx["body"] = strings.TrimRight(*sc.Body, "\n")
-			}
-			return s.Templates.Engine.Render(def.Template, ctx)
+			return s.Templates.Engine.Render(def.Template, shortcodeContext(sc))
 		},
 		func(sc shortcode.Shortcode) bool {
 			def, ok := defs[sc.Name]
@@ -536,23 +530,11 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 		if !ok {
 			return markdown.Rendered{}, fmt.Errorf("unknown shortcode: %s", sc.Name)
 		}
-		ctx := map[string]any{"nth": sc.Nth}
-		ctx[contextKey] = contentCtx
-		for k, v := range sc.Args {
-			ctx[k] = v
-		}
-		if sc.Body != nil {
-			ctx["body"] = strings.TrimRight(*sc.Body, "\n")
-		}
-		repl, rErr := s.Templates.Engine.Render(def.Template, ctx)
+		repl, rErr := s.Templates.Engine.Render(def.Template, shortcodeContext(sc))
 		if rErr != nil {
 			return markdown.Rendered{}, rErr
 		}
-		if !strings.Contains(repl, "<") {
-			repl = strings.TrimRight(repl, "\n") + "\n"
-		} else {
-			repl = strings.TrimRight(repl, "\n") + "\n"
-		}
+		repl = strings.TrimRight(repl, "\n") + "\n"
 		rendered.Body = strings.Replace(rendered.Body, shortcode.Placeholder, repl, 1)
 	}
 	rendered.Body = strings.ReplaceAll(rendered.Body, `<span id="continue-reading"></span>`+"\n<h", `<span id="continue-reading"></span><h`)
@@ -1361,7 +1343,7 @@ func (s *Site) taxonomyFeedEnabled(name string) bool {
 }
 
 func (s *Site) render404(liveReloadURL string) error {
-	content, err := s.Templates.Render("404.html", map[string]any{"config": s.Config.TemplateView()})
+	content, err := s.Templates.Render("404.html", s.baseTemplateContext())
 	if err != nil {
 		return fmt.Errorf("render 404.html: %w", err)
 	}
@@ -1370,7 +1352,7 @@ func (s *Site) render404(liveReloadURL string) error {
 }
 
 func (s *Site) renderRobots() error {
-	content, err := s.Templates.Render("robots.txt", map[string]any{"config": s.Config.TemplateView()})
+	content, err := s.Templates.Render("robots.txt", s.baseTemplateContext())
 	if err != nil {
 		return fmt.Errorf("render robots.txt: %w", err)
 	}
