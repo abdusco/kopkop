@@ -137,7 +137,7 @@ func (r RawFrontMatter) Decode(v any) error {
 	}
 	switch r.Format {
 	case FormatTOML:
-		if _, err := toml.Decode(r.Data, v); err != nil {
+		if _, err := toml.Decode(utcLocalDates(r.Data), v); err != nil {
 			return fmt.Errorf("toml deserialize error: %w", err)
 		}
 		return nil
@@ -161,4 +161,31 @@ func ParseFrontMatter[T any](filePath string, content string) (T, string, error)
 		return out, "", fmt.Errorf("error parsing front matter for %q: %w", filePath, err)
 	}
 	return out, body, nil
+}
+
+var localDateRe = regexp.MustCompile(`^(\s*(?:date|updated)\s*=\s*)(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(:\d{2}(?:\.\d+)?)?)?(\s*(?:#.*)?)$`)
+
+// utcLocalDates pins offset-less top-level date/updated values to UTC. The TOML
+// decoder would otherwise read them in the machine's local zone, which makes
+// output depend on TZ.
+func utcLocalDates(data string) string {
+	lines := strings.Split(data, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+			break
+		}
+		m := localDateRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		clock, seconds := m[3], m[4]
+		if clock == "" {
+			clock = "00:00"
+		}
+		if seconds == "" {
+			seconds = ":00"
+		}
+		lines[i] = m[1] + m[2] + "T" + clock + seconds + "Z" + m[5]
+	}
+	return strings.Join(lines, "\n")
 }
