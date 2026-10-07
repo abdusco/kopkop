@@ -49,6 +49,9 @@ func TestURLFormat(t *testing.T) {
 	for _, tc := range []struct{ explicit, ct, want string }{
 		{"plain", "application/json", "plain"},
 		{"", "application/json; charset=utf-8", "json"},
+		{"", "application/vnd.api+json", "json"},
+		{"", "Application/JSON", "json"},
+		{"", "text/x-yaml", "yaml"},
 		{"", "application/octet-stream", "yaml"},
 	} {
 		t.Run(tc.want, func(t *testing.T) { assert.Equal(t, tc.want, urlFormat(tc.explicit, u, tc.ct)) })

@@ -106,13 +106,16 @@ func urlFormat(explicit string, u *url.URL, ct string) string {
 
 func contentTypeToFormat(ct string) string {
 	ct = strings.SplitN(ct, ";", 2)[0]
-	ct = strings.TrimSpace(ct)
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	if strings.HasSuffix(ct, "+json") {
+		return "json"
+	}
 	switch ct {
 	case "application/json":
 		return "json"
 	case "application/toml", "text/x-toml":
 		return "toml"
-	case "application/yaml", "text/yaml":
+	case "application/yaml", "text/yaml", "application/x-yaml", "text/x-yaml":
 		return "yaml"
 	case "text/csv":
 		return "csv"
