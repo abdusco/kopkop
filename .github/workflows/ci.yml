@@ -24,5 +24,14 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Format
+        run: test -z "$(gofmt -l $(git ls-files '*.go' | grep -v '^tests/fixtures/'))"
+
+      - name: Module tidy
+        run: go mod tidy -diff
+
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
+
+      - name: Test in a non-UTC timezone
+        run: TZ=America/Los_Angeles go test ./...
