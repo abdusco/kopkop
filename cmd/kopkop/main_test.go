@@ -28,8 +28,10 @@ timeout_seconds = 2
 use_cache = false
 `), 0o644))
 
-	require.NoError(t, runBuild([]string{"--root", root, "--force"}))
+	require.NoError(t, runBuild([]string{"--root", root}))
 	require.FileExists(t, filepath.Join(root, "public", "404.html"))
+	// A repeated build replaces the previous output.
+	require.NoError(t, runBuild([]string{"--root", root}))
 
 	// Make check deterministic without internet by using a local page with no outbound links.
 	content := "+++\ntitle='No Links'\n+++\nHello"

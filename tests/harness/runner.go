@@ -20,7 +20,6 @@ func BuildWithKopkop(root string, configPath string, outputDir string, includeDr
 	return s.Build(site.BuildOptions{
 		IncludeDrafts: includeDrafts,
 		BuildMode:     site.BuildDisk,
-		Force:         true,
 	})
 }
 

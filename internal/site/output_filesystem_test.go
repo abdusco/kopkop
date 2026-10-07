@@ -47,7 +47,7 @@ func TestBuildModesProduceCompleteMatchingArtifacts(t *testing.T) {
 			if tc.mode == BuildMemory {
 				require.NoError(t, os.WriteFile(filepath.Join(s.OutputPath, "disk-sentinel"), []byte("keep"), 0o644))
 			}
-			require.NoError(t, s.Build(BuildOptions{BuildMode: tc.mode, Force: true}))
+			require.NoError(t, s.Build(BuildOptions{BuildMode: tc.mode}))
 			artifacts := map[string][]byte{}
 			require.NoError(t, fs.WalkDir(s.OutputFS, ".", func(name string, entry fs.DirEntry, err error) error {
 				if err != nil {

@@ -7,7 +7,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -199,11 +198,6 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
-		if !opts.Force {
-			if _, err := os.Stat(s.OutputPath); err == nil {
-				return fmt.Errorf("directory %q already exists; use --force to overwrite", s.OutputPath)
-			}
-		}
 		// Recheck immediately before deletion, including symlinks changed since New.
 		if err := validateOutputPath(s.BasePath, s.ConfigPath, s.OutputPath, s.Config.ExtraWatchPaths); err != nil {
 			return err

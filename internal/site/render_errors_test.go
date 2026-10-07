@@ -43,7 +43,7 @@ func TestBuildTemplateFailures(t *testing.T) {
 				}
 				s, err := New(SiteParams{BasePath: root, ConfigPath: cfg})
 				require.NoError(t, err)
-				err = s.Build(BuildOptions{BuildMode: mode, Force: true})
+				err = s.Build(BuildOptions{BuildMode: mode})
 				if len(tc.want) == 0 {
 					require.NoError(t, err)
 					require.NotEmpty(t, s.Library.Pages["post.md"].Content)
@@ -102,7 +102,7 @@ func TestAuxiliaryTemplateFailures(t *testing.T) {
 				if tc.breakRedirect {
 					require.NoError(t, s.Templates.Engine.AddTemplate("__zola_builtins/internal/alias.html", "{{ broken() }}"))
 				}
-				err = s.Build(BuildOptions{BuildMode: mode, Force: true})
+				err = s.Build(BuildOptions{BuildMode: mode})
 				if len(tc.want) == 0 {
 					require.NoError(t, err)
 					var output filesystem.FileSystem = filesystem.NewDiskFS(s.OutputPath)

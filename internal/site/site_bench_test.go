@@ -81,7 +81,7 @@ generate_robots_txt = true
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}); err != nil {
+		if err := s.Build(BuildOptions{BuildMode: BuildDisk}); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -153,7 +153,7 @@ func runBuild(args []string) error {
 	configArg := fs.String("config", "", "config file name")
 	baseURL := fs.String("base-url", "", "override base url")
 	out := fs.String("output-dir", "", "output directory")
-	force := fs.Bool("force", false, "overwrite output directory")
+	_ = fs.Bool("force", false, "deprecated: the output directory is always replaced")
 	drafts := fs.Bool("drafts", false, "include drafts")
 	minify := fs.Bool("minify", false, "minify html")
 	concurrency := fs.Int("concurrency", 0, "page rendering workers (0: GOMAXPROCS)")
@@ -178,7 +178,6 @@ func runBuild(args []string) error {
 		BaseURL:       *baseURL,
 		BuildMode:     site.BuildDisk,
 		Minify:        *minify,
-		Force:         *force,
 		Concurrency:   *concurrency,
 	})
 }
@@ -246,7 +245,7 @@ func runCheck(args []string) error {
 	if err := s.Load(*drafts); err != nil {
 		return err
 	}
-	if err := s.Build(site.BuildOptions{IncludeDrafts: *drafts, BuildMode: site.BuildDisk, Force: true}); err != nil {
+	if err := s.Build(site.BuildOptions{IncludeDrafts: *drafts, BuildMode: site.BuildDisk}); err != nil {
 		return err
 	}
 	s.Config.LinkChecker.Refresh = *refresh

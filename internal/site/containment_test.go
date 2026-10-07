@@ -51,7 +51,7 @@ func TestBuildRejectsOutputTraversal(t *testing.T) {
 					require.ErrorIs(t, err, fs.ErrInvalid)
 				} else {
 					require.NoError(t, err)
-					require.ErrorIs(t, s.Build(BuildOptions{BuildMode: mode, Force: true}), fs.ErrInvalid)
+					require.ErrorIs(t, s.Build(BuildOptions{BuildMode: mode}), fs.ErrInvalid)
 				}
 				data, err := os.ReadFile(sentinel)
 				require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestBuildRejectsEscapingSourceSymlinks(t *testing.T) {
 			require.NoError(t, os.Symlink(outside, link))
 			s, err := New(SiteParams{BasePath: base, ConfigPath: config})
 			if err == nil {
-				err = s.Build(BuildOptions{Force: true})
+				err = s.Build(BuildOptions{})
 			}
 			require.Error(t, err)
 			data, err := os.ReadFile(outside)
