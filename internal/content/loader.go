@@ -167,6 +167,9 @@ func collectContentFiles(contentDir string) ([]contentFile, error) {
 			return err
 		}
 		if d.IsDir() {
+			if path != contentDir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".md" {

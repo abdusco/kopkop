@@ -41,6 +41,29 @@ func TestLoadLibrary_BuildsPagesSectionsTaxonomies(t *testing.T) {
 	assert.Equal(t, []string{"blog/post.md"}, tax.Terms["go"].Pages)
 }
 
+func TestLoadLibrary_SkipsHiddenFilesAndDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"content/_index.md":            "+++\ntitle='Home'\n+++\n",
+		"content/post.md":              "Hello",
+		"content/.hidden.md":           "Hidden file",
+		"content/.obsidian/note.md":    "Hidden dir",
+		"content/blog/.drafts/deep.md": "Nested hidden dir",
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
+	}
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+	lib, err := LoadLibrary(root, cfg, LoadOptions{})
+	require.NoError(t, err)
+	require.Len(t, lib.Pages, 1)
+	assert.Contains(t, lib.Pages, "post.md")
+}
+
 func TestLoadLibrary_SkipsDraftsByDefault(t *testing.T) {
 	t.Parallel()
 
