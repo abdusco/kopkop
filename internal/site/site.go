@@ -788,41 +788,7 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 		entries = append(entries, pageEntry{rel: p, pg: pg})
 	}
 
-	switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
-	case "date":
-		sort.SliceStable(entries, func(i, j int) bool {
-			di := entries[i].pg.Date
-			dj := entries[j].pg.Date
-			if di != nil && dj != nil && !di.Equal(*dj) {
-				return di.After(*dj)
-			}
-			if di != nil && dj == nil {
-				return true
-			}
-			if di == nil && dj != nil {
-				return false
-			}
-			if entries[i].pg.Meta.Title != entries[j].pg.Meta.Title {
-				return entries[i].pg.Meta.Title < entries[j].pg.Meta.Title
-			}
-			return entries[i].rel < entries[j].rel
-		})
-	case "weight":
-		sort.SliceStable(entries, func(i, j int) bool {
-			wi := entries[i].pg.Meta.Weight
-			wj := entries[j].pg.Meta.Weight
-			if wi != wj {
-				return wi < wj
-			}
-			if entries[i].pg.Date != nil && entries[j].pg.Date != nil && !entries[i].pg.Date.Equal(*entries[j].pg.Date) {
-				return entries[i].pg.Date.After(*entries[j].pg.Date)
-			}
-			return entries[i].rel < entries[j].rel
-		})
-	default:
-		// preserve content loader order for sections without explicit sorting
-	}
-
+	// sec.Pages is already ordered by the content loader.
 	return lo.Map(entries, func(entry pageEntry, _ int) map[string]any {
 		return s.pageView(entry.rel, entry.pg)
 	})

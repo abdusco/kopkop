@@ -9,9 +9,9 @@ type PageFrontMatter struct {
 	Path              string              `toml:"path" yaml:"path"`
 	Date              any                 `toml:"date" yaml:"date"`
 	Updated           any                 `toml:"updated" yaml:"updated"`
-	Weight            int                 `toml:"weight" yaml:"weight"`
+	Weight            *int                `toml:"weight" yaml:"weight"`
 	Template          string              `toml:"template" yaml:"template"`
-	Aliases           []string            `toml:"aliases" yaml:"aliases"`
+	Aliases          []string            `toml:"aliases" yaml:"aliases"`
 	Taxonomies        map[string][]string `toml:"taxonomies" yaml:"taxonomies"`
 	Authors           []string            `toml:"authors" yaml:"authors"`
 	Extra             map[string]any      `toml:"extra" yaml:"extra"`

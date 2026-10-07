@@ -64,6 +64,28 @@ func TestLoadLibrary_SkipsHiddenFilesAndDirectories(t *testing.T) {
 	assert.Contains(t, lib.Pages, "post.md")
 }
 
+func TestLoadLibrary_SortByWeightPutsUnweightedLast(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"content/blog/_index.md": "+++\nsort_by='weight'\n+++\n",
+		"content/blog/a.md":      "+++\ntitle='none'\n+++\n",
+		"content/blog/b.md":      "+++\nweight=5\n+++\n",
+		"content/blog/c.md":      "+++\nweight=1\n+++\n",
+		"content/blog/d.md":      "+++\nweight=0\n+++\n",
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
+	}
+
+	cfg := config.Default()
+	cfg.BaseURL = "https://example.com"
+	lib, err := LoadLibrary(root, cfg, LoadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"blog/d.md", "blog/c.md", "blog/b.md", "blog/a.md"}, lib.Sections["blog/_index.md"].Pages)
+}
+
 func TestLoadLibrary_SkipsDraftsByDefault(t *testing.T) {
 	t.Parallel()
 

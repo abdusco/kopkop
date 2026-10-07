@@ -389,41 +389,42 @@ func attachPagesToSections(lib *Library) {
 	for _, sec := range lib.Sections {
 		sec.Pages = lo.Uniq(sec.Pages)
 
-		sortBy := strings.ToLower(strings.TrimSpace(sec.Meta.SortBy))
-		if sortBy == "date" {
-			sort.SliceStable(sec.Pages, func(i, j int) bool {
-				pi := lib.Pages[sec.Pages[i]]
-				pj := lib.Pages[sec.Pages[j]]
-				if pi.Date != nil && pj.Date != nil {
-					if !pi.Date.Equal(*pj.Date) {
-						return pi.Date.After(*pj.Date)
-					}
-				}
-				if pi.Date != nil && pj.Date == nil {
-					return true
-				}
-				if pi.Date == nil && pj.Date != nil {
-					return false
-				}
-				return sec.Pages[i] < sec.Pages[j]
-			})
-			continue
-		}
-		if sortBy == "weight" {
-			sort.SliceStable(sec.Pages, func(i, j int) bool {
-				pi := lib.Pages[sec.Pages[i]]
-				pj := lib.Pages[sec.Pages[j]]
-				if pi.Meta.Weight != pj.Meta.Weight {
-					return pi.Meta.Weight < pj.Meta.Weight
-				}
-				return sec.Pages[i] < sec.Pages[j]
-			})
-			continue
-		}
-		sort.SliceStable(sec.Pages, func(i, j int) bool {
-			return sec.Pages[i] < sec.Pages[j]
-		})
+		sortSectionPages(lib, sec)
 	}
+}
+
+// sortSectionPages orders sec.Pages by the section's sort_by; this is the one
+// ordering used for rendering, pagination and feeds.
+func sortSectionPages(lib *Library, sec *Section) {
+	sort.SliceStable(sec.Pages, func(i, j int) bool {
+		ri, rj := sec.Pages[i], sec.Pages[j]
+		pi, pj := lib.Pages[ri], lib.Pages[rj]
+		switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
+		case "date":
+			if pi.Date != nil && pj.Date != nil && !pi.Date.Equal(*pj.Date) {
+				return pi.Date.After(*pj.Date)
+			}
+			if (pi.Date == nil) != (pj.Date == nil) {
+				return pi.Date != nil
+			}
+			if pi.Meta.Title != pj.Meta.Title {
+				return pi.Meta.Title < pj.Meta.Title
+			}
+		case "weight":
+			// Pages without a weight come last.
+			wi, wj := pi.Meta.Weight, pj.Meta.Weight
+			if (wi == nil) != (wj == nil) {
+				return wi != nil
+			}
+			if wi != nil && *wi != *wj {
+				return *wi < *wj
+			}
+			if pi.Date != nil && pj.Date != nil && !pi.Date.Equal(*pj.Date) {
+				return pi.Date.After(*pj.Date)
+			}
+		}
+		return ri < rj
+	})
 }
 
 func buildTaxonomies(lib *Library, cfg config.Config) {
