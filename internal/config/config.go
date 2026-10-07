@@ -35,6 +35,10 @@ type LinkChecker struct {
 	Refresh            bool             `toml:"-"`
 }
 
+// defaultHighlightTheme is used when a Zola config enables highlighting
+// without naming a Chroma style.
+const defaultHighlightTheme = "github"
+
 type Markdown struct {
 	InsertAnchorLinks        bool   `toml:"insert_anchor_links"`
 	ExternalLinksTargetBlank bool   `toml:"external_links_target_blank"`
@@ -85,11 +89,32 @@ func (m *Markdown) UnmarshalTOML(v any) error {
 			return fmt.Errorf("markdown.external_links_target_blank has unsupported type %T", raw)
 		}
 	}
-	if _, exists := obj["highlight_code"]; exists {
-		return errors.New("markdown.highlight_code is no longer supported; use markdown.highlight_theme = \"...\"")
+	// Zola spellings: [markdown.highlighting] theme = "..." and highlight_code = bool.
+	if raw, exists := obj["highlighting"]; exists {
+		table, ok := raw.(map[string]any)
+		if !ok {
+			return errors.New("markdown.highlighting must be a table")
+		}
+		for _, key := range []string{"theme", "dark_theme", "light_theme"} {
+			if theme, ok := table[key].(string); ok && strings.TrimSpace(theme) != "" {
+				m.HighlightTheme = strings.TrimSpace(theme)
+				break
+			}
+		}
+		if m.HighlightTheme == "" {
+			m.HighlightTheme = defaultHighlightTheme
+		}
 	}
-	if _, exists := obj["highlighting"]; exists {
-		return errors.New("markdown.highlighting is no longer supported; use markdown.highlight_theme = \"...\"")
+	highlightCode := true
+	if raw, exists := obj["highlight_code"]; exists {
+		val, ok := raw.(bool)
+		if !ok {
+			return fmt.Errorf("markdown.highlight_code has unsupported type %T", raw)
+		}
+		highlightCode = val
+		if val && m.HighlightTheme == "" {
+			m.HighlightTheme = defaultHighlightTheme
+		}
 	}
 	if raw, exists := obj["highlight_theme"]; exists {
 		theme, ok := raw.(string)
@@ -97,6 +122,9 @@ func (m *Markdown) UnmarshalTOML(v any) error {
 			return fmt.Errorf("markdown.highlight_theme has unsupported type %T", raw)
 		}
 		m.HighlightTheme = strings.TrimSpace(theme)
+	}
+	if !highlightCode {
+		m.HighlightTheme = ""
 	}
 
 	return nil
