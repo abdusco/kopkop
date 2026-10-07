@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +20,44 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHubReplaysBuildErrorToNewClients(t *testing.T) {
+	t.Parallel()
+
+	h := newHub()
+	defer h.close()
+	srv := httptest.NewServer(http.HandlerFunc(h.handleWS))
+	defer srv.Close()
+	dial := func() *websocket.Conn {
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+		require.NoError(t, err)
+		return conn
+	}
+	read := func(conn *websocket.Conn) string {
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+		_, msg, err := conn.ReadMessage()
+		require.NoError(t, err)
+		return string(msg)
+	}
+
+	h.fail(context.Background(), errors.New("render page \"a.md\": boom\nsecond line"))
+
+	// A page opened while the build is broken gets the error immediately.
+	late := dial()
+	defer late.Close()
+	var failure errorMessage
+	require.NoError(t, json.Unmarshal([]byte(read(late)), &failure))
+	require.Equal(t, errorMessage{Type: "error", Message: "render page \"a.md\": boom\nsecond line"}, failure)
+
+	// A successful build clears the error: new clients get nothing, open ones reload.
+	h.succeed(context.Background())
+	require.Equal(t, "reload", read(late))
+	fresh := dial()
+	defer fresh.Close()
+	require.NoError(t, fresh.SetReadDeadline(time.Now().Add(100*time.Millisecond)))
+	_, _, err := fresh.ReadMessage()
+	require.Error(t, err)
+}
 
 func TestServeReloadAndShutdown(t *testing.T) {
 	t.Parallel()
@@ -116,6 +157,16 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					require.NoError(t, os.WriteFile(filepath.Join(root, tc.path), []byte(tc.body), 0o644))
+					// Pages are told about the failure instead of reloading.
+					select {
+					case msg := <-reloaded:
+						var failure errorMessage
+						require.NoError(t, json.Unmarshal([]byte(msg), &failure))
+						require.Equal(t, "error", failure.Type)
+						require.NotEmpty(t, failure.Message)
+					case <-time.After(5 * time.Second):
+						t.Fatal("no error notification")
+					}
 					require.Never(t, func() bool { return !strings.Contains(fetch("/blog/post/"), "Changed:Updated") }, 200*time.Millisecond, 10*time.Millisecond)
 					if store {
 						data, err := os.ReadFile(filepath.Join(root, "public/blog/post/index.html"))
@@ -194,7 +245,7 @@ func TestServePreviewSubpath(t *testing.T) {
 	require.Contains(t, body, base+"/preview/post/")
 	require.NotContains(t, body, "production.example")
 	require.Contains(t, body, `new URL("/preview/__livereload",window.location.href)`)
-	require.Contains(t, body, `location.protocol==='https:'?'wss:':'ws:'`)
+	require.Contains(t, body, `location.protocol === 'https:' ? 'wss:' : 'ws:'`)
 	conn, _, err := websocket.DefaultDialer.Dial("ws://"+listener.Addr().String()+"/preview/__livereload", nil)
 	require.NoError(t, err)
 	defer conn.Close()

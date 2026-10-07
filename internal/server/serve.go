@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -168,6 +169,7 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 			candidate, err := s.Reload()
 			if err != nil {
 				log.Printf("reload configuration/templates error: %v", err)
+				hub.fail(ctx, err)
 				continue
 			}
 			nextPlan := newWatchPlan(candidate, opts.ExtraWatchPaths)
@@ -178,13 +180,14 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 			plan = nextPlan
 			if err := build(candidate); err != nil {
 				log.Printf("reload build error: %v", err)
+				hub.fail(ctx, err)
 				continue
 			}
 			snapshotMu.Lock()
 			current = candidate
 			snapshotMu.Unlock()
 			s = candidate
-			hub.broadcast(ctx, "reload")
+			hub.succeed(ctx)
 		}
 	}
 }
@@ -195,6 +198,36 @@ type hub struct {
 	writeMu  sync.Mutex
 	closed   bool
 	handlers sync.WaitGroup
+	// lastError is the message of the failed build being shown in browsers.
+	// Clients that connect while it is set get it immediately.
+	lastError string
+}
+
+// errorMessage is what the browser overlay receives; plain "reload" is sent on success.
+type errorMessage struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// fail tells every connected page to show err instead of reloading.
+func (h *hub) fail(ctx context.Context, err error) {
+	h.mu.Lock()
+	h.lastError = err.Error()
+	h.mu.Unlock()
+	h.broadcast(ctx, errorPayload(err.Error()))
+}
+
+// succeed clears any shown error and reloads every connected page.
+func (h *hub) succeed(ctx context.Context) {
+	h.mu.Lock()
+	h.lastError = ""
+	h.mu.Unlock()
+	h.broadcast(ctx, "reload")
+}
+
+func errorPayload(message string) string {
+	b, _ := json.Marshal(errorMessage{Type: "error", Message: message})
+	return string(b)
 }
 
 func newHub() *hub { return &hub{conns: map[*websocket.Conn]struct{}{}} }
@@ -214,7 +247,15 @@ func (h *hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	h.conns[c] = struct{}{}
 	h.handlers.Add(1)
+	pending := h.lastError
 	h.mu.Unlock()
+	if pending != "" {
+		// Share writeMu with broadcast: gorilla allows one writer per connection.
+		h.writeMu.Lock()
+		_ = c.SetWriteDeadline(time.Now().Add(time.Second))
+		_ = c.WriteMessage(websocket.TextMessage, []byte(errorPayload(pending)))
+		h.writeMu.Unlock()
+	}
 	defer func() { h.mu.Lock(); delete(h.conns, c); h.mu.Unlock(); _ = c.Close(); h.handlers.Done() }()
 	for {
 		if _, _, err := c.ReadMessage(); err != nil {

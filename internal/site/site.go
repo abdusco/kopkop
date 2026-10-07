@@ -3,6 +3,7 @@ package site
 import (
 	"bytes"
 	"cmp"
+	_ "embed"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -1694,6 +1695,12 @@ func minifyHTML(in string) string {
 	return out
 }
 
+// liveReloadJS reloads the page on "reload" and shows build errors as an
+// overlay; __RELOAD_PATH__ is replaced by the websocket endpoint.
+//
+//go:embed livereload.js
+var liveReloadJS string
+
 func injectLiveReload(html string, reloadURL string) string {
 	if reloadURL == "" {
 		return html
@@ -1702,7 +1709,7 @@ func injectLiveReload(html string, reloadURL string) string {
 		reloadURL = u.RequestURI()
 	}
 	reloadPath, _ := json.Marshal(reloadURL)
-	script := `<script>(function(){var u=new URL(` + string(reloadPath) + `,window.location.href);u.protocol=location.protocol==='https:'?'wss:':'ws:';var ws=new WebSocket(u);ws.onmessage=function(){window.location.reload();};})();</script>`
+	script := "<script>" + strings.Replace(liveReloadJS, "__RELOAD_PATH__", string(reloadPath), 1) + "</script>"
 	if strings.Contains(html, "</body>") {
 		return strings.Replace(html, "</body>", script+"</body>", 1)
 	}
