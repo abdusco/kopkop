@@ -559,6 +559,11 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 		return markdown.Rendered{}, err
 	}
 	rendered.Body = shortcodeParagraphRe.ReplaceAllString(rendered.Body, shortcode.Placeholder)
+	// HTML shortcodes run after Markdown, so they can use the page's own TOC.
+	// contentCtx is built per call, so setting it here is not shared.
+	contentCtx["toc"] = lo.Map(rendered.TOC, func(h markdown.Heading, _ int) map[string]any {
+		return map[string]any{"id": h.ID, "title": h.Title, "level": h.Level}
+	})
 	for _, sc := range htmlSCs {
 		def, ok := defs[sc.Name]
 		if !ok {
