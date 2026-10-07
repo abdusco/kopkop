@@ -61,7 +61,11 @@ type Page struct {
 	ExternalLinks []string
 	Date          *time.Time
 	Updated       *time.Time
-	ParentSection string
+	// DateHasTime and UpdatedHasTime record whether the source carried a time
+	// of day, which decides the sitemap lastmod precision.
+	DateHasTime    bool
+	UpdatedHasTime bool
+	ParentSection  string
 }
 
 // AssetRelPath returns asset's slash-separated path relative to the page's

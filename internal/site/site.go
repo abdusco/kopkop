@@ -1266,9 +1266,9 @@ func (s *Site) sitemapEntries() ([]string, map[string]string) {
 		}
 		urlsSet[p.Permalink] = struct{}{}
 		if p.Updated != nil {
-			lastmods[p.Permalink] = s.pageSitemapLastmod(p.SourcePath, "updated", p.Meta.Updated, p.Updated)
+			lastmods[p.Permalink] = sitemapLastmod(p.Updated, p.UpdatedHasTime)
 		} else if p.Date != nil {
-			lastmods[p.Permalink] = s.pageSitemapLastmod(p.SourcePath, "date", p.Meta.Date, p.Date)
+			lastmods[p.Permalink] = sitemapLastmod(p.Date, p.DateHasTime)
 		}
 	}
 	for _, sec := range s.Library.Sections {
@@ -1338,87 +1338,16 @@ func defaultSitemapXML(urls []string, lastmods map[string]string) string {
 	return b.String()
 }
 
-func formatSitemapDate(raw any, parsed *time.Time) string {
-	if parsed == nil {
+// sitemapLastmod formats a page date as YYYY-MM-DD, or RFC3339 when the source
+// date carried a time of day.
+func sitemapLastmod(t *time.Time, hasTime bool) string {
+	if t == nil {
 		return ""
 	}
-	if s, ok := raw.(string); ok {
-		t := strings.TrimSpace(s)
-		if strings.Contains(t, "T") {
-			return parsed.UTC().Format(time.RFC3339)
-		}
+	if hasTime {
+		return t.UTC().Format(time.RFC3339)
 	}
-	return parsed.Format("2006-01-02")
-}
-
-func (s *Site) pageSitemapLastmod(sourcePath string, key string, raw any, parsed *time.Time) string {
-	if parsed == nil {
-		return ""
-	}
-	if lex, ok := s.extractFrontMatterScalar(sourcePath, key); ok {
-		if strings.Contains(strings.ToLower(lex), "t") {
-			return parsed.UTC().Format(time.RFC3339)
-		}
-		return parsed.Format("2006-01-02")
-	}
-	return formatSitemapDate(raw, parsed)
-}
-
-func (site *Site) extractFrontMatterScalar(sourcePath string, key string) (string, bool) {
-	rel, err := filepath.Rel(site.BasePath, sourcePath)
-	if err != nil {
-		return "", false
-	}
-	b, err := site.Templates.SourceFS.ReadFile(filepath.ToSlash(rel))
-	if err != nil {
-		return "", false
-	}
-	s := strings.TrimPrefix(string(b), "\ufeff")
-	if strings.HasPrefix(s, "---\n") {
-		end := strings.Index(s[4:], "\n---")
-		if end == -1 {
-			return "", false
-		}
-		block := s[4 : 4+end]
-		for _, line := range strings.Split(block, "\n") {
-			trim := strings.TrimSpace(line)
-			if !strings.HasPrefix(trim, key+":") {
-				continue
-			}
-			v := strings.TrimSpace(strings.TrimPrefix(trim, key+":"))
-			v = strings.Trim(v, `"'`)
-			if v == "" {
-				return "", false
-			}
-			return v, true
-		}
-		return "", false
-	}
-	if strings.HasPrefix(s, "+++\n") {
-		end := strings.Index(s[4:], "\n+++")
-		if end == -1 {
-			return "", false
-		}
-		block := s[4 : 4+end]
-		for _, line := range strings.Split(block, "\n") {
-			trim := strings.TrimSpace(line)
-			if !strings.HasPrefix(trim, key+" =") {
-				continue
-			}
-			parts := strings.SplitN(trim, "=", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			v := strings.TrimSpace(parts[1])
-			v = strings.Trim(v, `"'`)
-			if v == "" {
-				return "", false
-			}
-			return v, true
-		}
-		return "", false
-	}
-	return "", false
+	return t.Format("2006-01-02")
 }
 
 func (s *Site) renderFeed() error {

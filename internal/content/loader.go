@@ -82,7 +82,7 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 		}
 		if page.Updated == nil {
 			if t, ok := commitDates["content/"+filepath.ToSlash(file.RelPath)]; ok {
-				page.Updated = &t
+				page.Updated, page.UpdatedHasTime = &t, true
 			}
 		}
 
@@ -311,6 +311,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 
 	if t, ok := parseDateAny(meta.Date); ok {
 		page.Date = &t
+		page.DateHasTime = hasTimeOfDay(meta.Date)
 	} else if meta.Date != nil || frontmatter.FieldLine(content, "date") > 0 {
 		return nil, metadataError(relPath, content, "date", "must be a valid YYYY-MM-DD date or RFC3339 timestamp")
 	} else if extractedDate != "" {
@@ -322,6 +323,7 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 	}
 	if t, ok := parseDateAny(meta.Updated); ok {
 		page.Updated = &t
+		page.UpdatedHasTime = hasTimeOfDay(meta.Updated)
 	} else if meta.Updated != nil || frontmatter.FieldLine(content, "updated") > 0 {
 		return nil, metadataError(relPath, content, "updated", "must be a valid YYYY-MM-DD date or RFC3339 timestamp")
 	}
@@ -572,6 +574,18 @@ func parseDateAny(v any) (time.Time, bool) {
 	default:
 		return time.Time{}, false
 	}
+}
+
+// hasTimeOfDay reports whether a decoded date value carries a time. Local
+// dates decode to midnight, so a datetime at exactly 00:00:00 counts as a date.
+func hasTimeOfDay(v any) bool {
+	switch x := v.(type) {
+	case time.Time:
+		return x.Hour() != 0 || x.Minute() != 0 || x.Second() != 0 || x.Nanosecond() != 0
+	case string:
+		return strings.Contains(x, "T")
+	}
+	return false
 }
 
 func splitComponents(p string) []string {
