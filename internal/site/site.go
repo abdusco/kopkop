@@ -1531,7 +1531,10 @@ func (s *Site) writeOutput(rel string, content string) error {
 	}
 
 	if s.Config.MinifyHTML && strings.HasSuffix(lowerRel, ".html") {
-		content = minifyHTML(content)
+		var err error
+		if content, err = minifyHTML(content); err != nil {
+			return fmt.Errorf("minify %s: %w", rel, err)
+		}
 	}
 
 	if strings.HasSuffix(lowerRel, ".html") || strings.HasSuffix(lowerRel, ".xml") || strings.HasSuffix(lowerRel, ".txt") || strings.HasSuffix(lowerRel, ".css") || strings.HasSuffix(lowerRel, ".js") {
@@ -1624,12 +1627,8 @@ func injectStylesheetIntoHead(html string, href string) string {
 	return html[:idx] + link + html[idx:]
 }
 
-func minifyHTML(in string) string {
-	out, err := htmlMinifier.String("text/html", in)
-	if err != nil {
-		return in
-	}
-	return out
+func minifyHTML(in string) (string, error) {
+	return htmlMinifier.String("text/html", in)
 }
 
 // liveReloadJS reloads the page on "reload" and shows build errors as an
@@ -1647,8 +1646,8 @@ func injectLiveReload(html string, reloadURL string) string {
 	}
 	reloadPath, _ := json.Marshal(reloadURL)
 	script := "<script>" + strings.Replace(liveReloadJS, "__RELOAD_PATH__", string(reloadPath), 1) + "</script>"
-	if strings.Contains(html, "</body>") {
-		return strings.Replace(html, "</body>", script+"</body>", 1)
+	if idx := strings.LastIndex(strings.ToLower(html), "</body>"); idx != -1 {
+		return html[:idx] + script + html[idx:]
 	}
 	return html + script
 }

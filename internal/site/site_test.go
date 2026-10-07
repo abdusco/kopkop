@@ -88,8 +88,32 @@ func TestMinifyHTML(t *testing.T) {
 	t.Parallel()
 
 	in := "<html>\n  <body>  <h1> Hi </h1> </body>\n</html>"
-	out := minifyHTML(in)
+	out, err := minifyHTML(in)
+	require.NoError(t, err)
 	require.Equal(t, "<h1>Hi</h1>", out)
+}
+
+func TestInjectLiveReloadPlacement(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		html string
+		tail string
+	}{
+		{name: "lowercase body", html: "<p>x</p></body></html>", tail: "</body></html>"},
+		{name: "uppercase body", html: "<P>x</P></BODY></HTML>", tail: "</BODY></HTML>"},
+		{name: "text mentioning body goes last tag", html: "<code>&lt;/body&gt;</code></body>", tail: "</body>"},
+		{name: "no body appends", html: "<p>x</p>", tail: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out := injectLiveReload(tc.html, "/__reload")
+			require.Contains(t, out, "<script>")
+			script := out[strings.Index(out, "<script>") : strings.LastIndex(out, "</script>")+len("</script>")]
+			require.Equal(t, tc.html[:len(tc.html)-len(tc.tail)]+script+tc.tail, out)
+		})
+	}
 }
 
 func TestSiteBuild_ConcurrentDeterministicOutput(t *testing.T) {
