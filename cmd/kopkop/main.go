@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -26,29 +27,39 @@ func main() {
 	cmd := os.Args[1]
 	switch cmd {
 	case "init":
-		if err := runInit(os.Args[2:]); err != nil {
-			log.Fatalf("init failed: %v", err)
-		}
+		exitOnError(cmd, runInit(os.Args[2:]))
 	case "build":
-		if err := runBuild(os.Args[2:]); err != nil {
-			log.Fatalf("build failed: %v", err)
-		}
+		exitOnError(cmd, runBuild(os.Args[2:]))
 	case "serve":
-		if err := runServe(os.Args[2:]); err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalf("serve failed: %v", err)
-		}
+		exitOnError(cmd, runServe(os.Args[2:]))
 	case "check":
-		if err := runCheck(os.Args[2:]); err != nil {
-			log.Fatalf("check failed: %v", err)
-		}
+		exitOnError(cmd, runCheck(os.Args[2:]))
+	case "version", "--version", "-version":
+		fmt.Println("kopkop " + version())
 	default:
 		usage()
 		os.Exit(1)
 	}
 }
 
+// exitOnError ends the process for real failures. -h already printed its usage,
+// and Ctrl+C stops `serve` cleanly.
+func exitOnError(cmd string, err error) {
+	if err == nil || errors.Is(err, flag.ErrHelp) || errors.Is(err, context.Canceled) {
+		return
+	}
+	log.Fatalf("%s failed: %v", cmd, err)
+}
+
+func version() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "(devel)"
+}
+
 func usage() {
-	fmt.Println("kopkop <init|build|serve|check> [flags]")
+	fmt.Println("kopkop <init|build|serve|check|version> [flags]")
 }
 
 func runInit(args []string) error {
@@ -91,7 +102,6 @@ Welcome to your new site.
 		{"templates/page.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ page.title }}</h1>{{ page.content|safe }}</body></html>`},
 		{"templates/section.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ section.title }}</h1><ul>{% for p in section.pages %}<li><a href="{{ p.permalink }}">{{ p.title }}</a></li>{% endfor %}</ul></body></html>`},
 		{"templates/index.html", `<html><head><link rel="stylesheet" href="{{ get_url(path='style.css') }}"></head><body><h1>{{ config.title }}</h1></body></html>`},
-		{"static/.keep", ""},
 		{"static/style.css", "body { font-family: sans-serif; margin: 2rem; line-height: 1.5; }\n" +
 			"h1 { margin-bottom: 1rem; }\n" +
 			"a { color: #0f4c81; text-decoration: none; }\n" +
@@ -185,6 +195,7 @@ func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	root := fs.String("root", ".", "root site directory")
 	configArg := fs.String("config", "", "config file name")
+	out := fs.String("output-dir", "", "output directory (used with --store-html)")
 	interfaceIP := fs.String("interface", "127.0.0.1", "bind interface")
 	port := fs.Int("port", 1111, "bind port")
 	baseURL := fs.String("base-url", "", "advertised preview URL (default: bound address and configured subpath)")
@@ -201,7 +212,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath})
+	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath, OutputDir: *out})
 	if err != nil {
 		return err
 	}
@@ -226,6 +237,8 @@ func runCheck(args []string) error {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	root := fs.String("root", ".", "root site directory")
 	configArg := fs.String("config", "", "config file name")
+	baseURL := fs.String("base-url", "", "override base url")
+	out := fs.String("output-dir", "", "output directory")
 	drafts := fs.Bool("drafts", false, "include drafts")
 	refresh := fs.Bool("refresh-links", false, "recheck external links ignoring cached results")
 	if err := fs.Parse(args); err != nil {
@@ -237,14 +250,14 @@ func runCheck(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath})
+	s, err := site.New(site.SiteParams{BasePath: rootDir, ConfigPath: cfgPath, OutputDir: *out})
 	if err != nil {
 		return err
 	}
 	if err := s.Load(*drafts); err != nil {
 		return err
 	}
-	if err := s.Build(site.BuildOptions{IncludeDrafts: *drafts, BuildMode: site.BuildDisk}); err != nil {
+	if err := s.Build(site.BuildOptions{IncludeDrafts: *drafts, BaseURL: *baseURL, BuildMode: site.BuildDisk}); err != nil {
 		return err
 	}
 	s.Config.LinkChecker.Refresh = *refresh

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,52 @@ use_cache = false
 	content := "+++\ntitle='No Links'\n+++\nHello"
 	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "nolinks.md"), []byte(content), 0o644))
 	require.NoError(t, runCheck([]string{"--root", root}))
+}
+
+func TestHelpFlagIsNotAFailure(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		run  func([]string) error
+	}{
+		{"init", runInit},
+		{"build", runBuild},
+		{"serve", runServe},
+		{"check", runCheck},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.run([]string{"-h"})
+			require.ErrorIs(t, err, flag.ErrHelp)
+			// exitOnError would call log.Fatalf (exiting the test binary) on a real error.
+			exitOnError(tc.name, err)
+		})
+	}
+}
+
+func TestRunInitDoesNotScaffoldKeepFile(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "site")
+	require.NoError(t, runInit([]string{root}))
+	require.NoFileExists(t, filepath.Join(root, "static", ".keep"))
+	require.FileExists(t, filepath.Join(root, "static", "style.css"))
+}
+
+func TestRunCheckOutputDirAndBaseURL(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "site")
+	require.NoError(t, runInit([]string{root}))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "nolinks.md"), []byte("+++\ntitle='No Links'\n+++\nHello"), 0o644))
+	out := filepath.Join(t.TempDir(), "out")
+
+	require.NoError(t, runCheck([]string{"--root", root, "--output-dir", out, "--base-url", "https://example.com"}))
+	require.FileExists(t, filepath.Join(out, "404.html"))
+	require.NoDirExists(t, filepath.Join(root, "public"))
+}
+
+func TestVersion(t *testing.T) {
+	t.Parallel()
+	require.NotEmpty(t, version())
 }
 
 func TestRunInitConflicts(t *testing.T) {

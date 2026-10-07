@@ -33,6 +33,9 @@ kopkop serve
 
 # Check external links
 kopkop check
+
+# Print the version
+kopkop version
 ```
 
 ## Commands
@@ -110,6 +113,7 @@ Starts a local dev server with filesystem watching and WebSocket live reload.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--root` | `.` | Root site directory |
+| `--output-dir` | from config | Output directory (matters with `--store-html`) |
 | `--interface` | `127.0.0.1` | Bind interface |
 | `--port` | `1111` | Bind port |
 | `--base-url` | bound address | Advertised preview URL, including an optional subpath |
@@ -137,6 +141,8 @@ Builds the site and verifies links in all generated HTML, including sections, sh
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--root` | `.` | Root site directory |
+| `--base-url` | from config | Override base URL |
+| `--output-dir` | from config | Output directory |
 | `--drafts` | `false` | Include drafts |
 | `--refresh-links` | `false` | Recheck all external links, ignoring cached results |
 
