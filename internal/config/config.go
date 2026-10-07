@@ -155,6 +155,7 @@ type Config struct {
 	BuildSearchIndex    bool             `toml:"build_search_index"`
 	GenerateFeeds       bool             `toml:"generate_feeds"`
 	FeedFilenames       []string         `toml:"feed_filenames"`
+	FeedLimit           int              `toml:"feed_limit"`
 	GenerateSitemap     bool             `toml:"generate_sitemap"`
 	GenerateRobotsTXT   bool             `toml:"generate_robots_txt"`
 	MinifyHTML          bool             `toml:"minify_html"`
@@ -322,6 +323,9 @@ func (c *Config) Validate() error {
 	}
 	if c.LinkChecker.UseCache && strings.TrimSpace(c.LinkChecker.CacheFile) == "" {
 		return errors.New("link_checker.cache_file must not be empty when caching is enabled")
+	}
+	if c.FeedLimit < 0 {
+		return errors.New("feed_limit must not be negative")
 	}
 	for _, f := range c.FeedFilenames {
 		if strings.TrimSpace(f) == "" {

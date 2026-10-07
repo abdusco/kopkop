@@ -481,7 +481,7 @@ When `build_search_index = true`, a JSON file is written to `search.index_path` 
 
 ## Feeds
 
-When `generate_feeds = true`, feeds are generated for the site and any sections with `generate_feed = true`. Feed templates default to Atom (`atom.xml`) but can be configured via `feed_filenames`.
+When `generate_feeds = true`, feeds are generated for the site and any sections with `generate_feed = true`. Each name in `feed_filenames` is rendered from a site or theme template of the same name (context: `feed_url`, `last_updated`, `pages`, `config`, plus `section` or `term`/`taxonomy`). Without a template, names ending in `rss.xml` produce RSS 2.0 and everything else Atom. `feed_limit` caps the number of entries. `sitemap.xml` can be overridden the same way (context: `entries` with `permalink` and `updated`).
 
 ## Static Assets
 

@@ -962,7 +962,10 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 					}
 				}
 				for _, feedName := range s.feedFilenames() {
-					feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxPath+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, taxPages)
+					feed, err := s.feedXML(feedName, strings.TrimRight(s.Config.BaseURL, "/")+taxPath+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, taxPages, map[string]any{"term": termObj, "taxonomy": map[string]any{"name": tax.Name}})
+					if err != nil {
+						return err
+					}
 					if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxPath, "/"), feedName), feed); err != nil {
 						return err
 					}
@@ -974,13 +977,31 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 }
 
 func (s *Site) renderSitemap() error {
-	urls := make([]string, 0, len(s.Library.Permalinks))
-	for _, v := range s.Library.Permalinks {
-		urls = append(urls, v)
+	urls, lastmods := s.sitemapEntries()
+	if !s.hasUserTemplate("sitemap.xml") {
+		return s.writeOutput("sitemap.xml", defaultSitemapXML(urls, lastmods))
 	}
-	sort.Strings(urls)
-	content := s.defaultSitemapXML()
-	return s.writeOutput("sitemap.xml", content)
+	entries := lo.Map(urls, func(u string, _ int) map[string]any {
+		entry := map[string]any{"permalink": u}
+		if lm := lastmods[u]; lm != "" {
+			entry["updated"] = lm
+		}
+		return entry
+	})
+	ctx := s.baseTemplateContext()
+	ctx["entries"] = entries
+	out, err := s.Templates.Render("sitemap.xml", ctx)
+	if err != nil {
+		return fmt.Errorf("render sitemap.xml: %w", err)
+	}
+	return s.writeOutput("sitemap.xml", out)
+}
+
+// hasUserTemplate reports whether the site or its theme provides name, as
+// opposed to the built-in fallbacks.
+func (s *Site) hasUserTemplate(name string) bool {
+	resolved, err := s.Templates.Resolver.Resolve(name, s.Templates.Available)
+	return err == nil && !strings.HasPrefix(resolved, "__zola_builtins/")
 }
 
 func xmlEscape(s string) string {
@@ -1041,7 +1062,8 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, page
 		updated = formatAtomTime(ordered[0].Date)
 	}
 	if updated == "" {
-		updated = time.Now().UTC().Format("2006-01-02T15:04:05+00:00")
+		// Keep the output reproducible: no wall-clock time in generated files.
+		updated = time.Unix(0, 0).UTC().Format("2006-01-02T15:04:05+00:00")
 	}
 
 	var b strings.Builder
@@ -1122,7 +1144,76 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, page
 	return b.String()
 }
 
-func (s *Site) defaultSitemapXML() string {
+// feedXML renders one feed. A site or theme template named after the feed file
+// (atom.xml, rss.xml, ...) wins; otherwise names ending in rss.xml get RSS 2.0
+// and everything else gets Atom.
+func (s *Site) feedXML(name, feedURL, htmlURL, title string, pages []*content.Page, extra map[string]any) (string, error) {
+	ordered := lo.Filter(s.sortedPagesForFeed(pages), func(p *content.Page, _ int) bool { return p.Date != nil })
+	if limit := s.Config.FeedLimit; limit > 0 && len(ordered) > limit {
+		ordered = ordered[:limit]
+	}
+	switch {
+	case s.hasUserTemplate(name):
+		ctx := s.baseTemplateContext()
+		ctx["feed_url"] = feedURL
+		ctx["last_updated"] = ""
+		if len(ordered) > 0 {
+			ctx["last_updated"] = formatAtomTime(ordered[0].Date)
+		}
+		ctx["pages"] = lo.Map(ordered, func(p *content.Page, _ int) map[string]any { return s.pageView(p.RelativePath, p) })
+		for k, v := range extra {
+			ctx[k] = v
+		}
+		out, err := s.Templates.Render(name, ctx)
+		if err != nil {
+			return "", fmt.Errorf("render feed %q: %w", name, err)
+		}
+		return out, nil
+	case strings.HasSuffix(name, "rss.xml"):
+		return s.defaultRSSXML(feedURL, htmlURL, title, ordered), nil
+	default:
+		return s.defaultAtomXML(feedURL, htmlURL, title, ordered), nil
+	}
+}
+
+func (s *Site) defaultRSSXML(feedURL, htmlURL, title string, pages []*content.Page) string {
+	description := cmp.Or(strings.TrimSpace(s.Config.Description), title)
+	var b strings.Builder
+	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	b.WriteString("<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n    <channel>\n")
+	b.WriteString("        <title>" + xmlEscape(title) + "</title>\n")
+	b.WriteString("        <link>" + xmlEscape(htmlURL) + "</link>\n")
+	b.WriteString("        <description>" + xmlEscape(description) + "</description>\n")
+	b.WriteString("        <generator>Zola</generator>\n")
+	b.WriteString("        <atom:link href=\"" + xmlEscape(feedURL) + "\" rel=\"self\" type=\"application/rss+xml\"/>\n")
+	if len(pages) > 0 && pages[0].Date != nil {
+		b.WriteString("        <lastBuildDate>" + pages[0].Date.UTC().Format(time.RFC1123Z) + "</lastBuildDate>\n")
+	}
+	for _, p := range pages {
+		b.WriteString("        <item>\n")
+		b.WriteString("            <title>" + xmlEscape(p.Meta.Title) + "</title>\n")
+		b.WriteString("            <pubDate>" + p.Date.UTC().Format(time.RFC1123Z) + "</pubDate>\n")
+		author := cmp.Or(strings.TrimSpace(s.Config.Author), "Unknown")
+		if len(p.Meta.Authors) > 0 {
+			author = p.Meta.Authors[0]
+		}
+		b.WriteString("            <author>" + xmlEscape(author) + "</author>\n")
+		b.WriteString("            <link>" + xmlEscape(p.Permalink) + "</link>\n")
+		b.WriteString("            <guid>" + xmlEscape(p.Permalink) + "</guid>\n")
+		body := p.Content
+		if p.Summary != nil {
+			body = continueReadingMarkerRe.ReplaceAllString(*p.Summary, "")
+		}
+		b.WriteString("            <description>" + xmlEscapeHTMLPayload(body) + "</description>\n")
+		b.WriteString("        </item>\n")
+	}
+	b.WriteString("    </channel>\n</rss>")
+	return b.String()
+}
+
+// sitemapEntries returns every published URL in sorted order plus the lastmod
+// of those that have one.
+func (s *Site) sitemapEntries() ([]string, map[string]string) {
 	lastmods := map[string]string{}
 	urlsSet := map[string]struct{}{}
 	urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"] = struct{}{}
@@ -1181,6 +1272,10 @@ func (s *Site) defaultSitemapXML() string {
 	}
 
 	sort.Strings(urls)
+	return urls, lastmods
+}
+
+func defaultSitemapXML(urls []string, lastmods map[string]string) string {
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
 	b.WriteString("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n")
@@ -1289,7 +1384,10 @@ func (s *Site) renderFeed() error {
 		allPages = append(allPages, p)
 	}
 	for _, feedName := range s.feedFilenames() {
-		feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, allPages)
+		feed, err := s.feedXML(feedName, strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, allPages, nil)
+		if err != nil {
+			return err
+		}
 		if err := s.writeOutput(feedName, feed); err != nil {
 			return err
 		}
@@ -1306,7 +1404,10 @@ func (s *Site) renderFeed() error {
 			return p, p != nil
 		})
 		for _, feedName := range s.feedFilenames() {
-			secFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, secPages)
+			secFeed, err := s.feedXML(feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, secPages, map[string]any{"section": s.sectionView(sec.RelativePath, sec, secEntries)})
+			if err != nil {
+				return err
+			}
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), feedName), secFeed); err != nil {
 				return err
 			}
