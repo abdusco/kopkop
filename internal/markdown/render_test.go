@@ -263,6 +263,21 @@ func TestHighlightCSS(t *testing.T) {
 	}
 }
 
+func TestHeadingIDsAreUnique(t *testing.T) {
+	t.Parallel()
+
+	res, err := RenderContent("## Foo\n\n## Foo\n\n## Foo 1\n\n### Foo\n\n## Foo 1\n", RenderContext{})
+	require.NoError(t, err)
+	seen := map[string]bool{}
+	for _, h := range res.TOC {
+		require.False(t, seen[h.ID], "duplicate id %q", h.ID)
+		seen[h.ID] = true
+	}
+	require.Len(t, res.TOC, 5)
+	require.Equal(t, "foo", res.TOC[0].ID)
+	require.Equal(t, "foo-1", res.TOC[1].ID)
+}
+
 func TestTransformHeadings(t *testing.T) {
 	t.Parallel()
 

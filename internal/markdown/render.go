@@ -119,9 +119,15 @@ func transformHeadings(doc ast.Node, source []byte, insertAnchors bool) {
 		text := nodePlainText(h, source)
 		id := cmp.Or(slugifyHeadingID(text), "section")
 		if count, exists := headingIDCounts[id]; exists {
-			headingIDCounts[id] = count + 1
-			id = fmt.Sprintf("%s-%d", id, count)
-		} else {
+			base := id
+			for exists {
+				id = fmt.Sprintf("%s-%d", base, count)
+				count++
+				_, exists = headingIDCounts[id]
+			}
+			headingIDCounts[base] = count
+		}
+		if _, exists := headingIDCounts[id]; !exists {
 			headingIDCounts[id] = 1
 		}
 		h.SetAttributeString("id", []byte(id))
