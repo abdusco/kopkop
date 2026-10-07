@@ -64,7 +64,10 @@ var availableBackends = func() []resizeBackend {
 	if _, err := exec.LookPath("magick"); err == nil {
 		backends = append(backends, resizeBackend{name: "magick", run: resizeWithMagick})
 	}
-	backends = append(backends, resizeBackend{name: "go", run: resizeWithGo})
+	backends = append(backends,
+		resizeBackend{name: "wasm", run: resizeWithWasm},
+		resizeBackend{name: "go", run: resizeWithGo},
+	)
 	return backends
 }()
 
@@ -390,23 +393,24 @@ func resizeWithGo(params ResizeParams) ([]byte, error) {
 	dstImg := image.NewRGBA(image.Rect(0, 0, params.Width, params.Height))
 	draw.CatmullRom.Scale(dstImg, dstImg.Bounds(), srcImg, srcRect, draw.Over, nil)
 
-	out := &bytes.Buffer{}
-	switch strings.ToLower(params.Ext) {
-	case ".jpg", ".jpeg":
-		if err := jpeg.Encode(out, dstImg, &jpeg.Options{Quality: 85}); err != nil {
-			return nil, err
-		}
-	case ".gif":
-		if err := gif.Encode(out, dstImg, nil); err != nil {
-			return nil, err
-		}
-	case ".png":
-		if err := png.Encode(out, dstImg); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("go resize backend does not support output format: %s", params.Ext)
-	}
+	return encodeImage(dstImg, params.Ext)
+}
 
+func encodeImage(img image.Image, ext string) ([]byte, error) {
+	out := &bytes.Buffer{}
+	var err error
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		err = jpeg.Encode(out, img, &jpeg.Options{Quality: 85})
+	case ".gif":
+		err = gif.Encode(out, img, nil)
+	case ".png":
+		err = png.Encode(out, img)
+	default:
+		return nil, fmt.Errorf("cannot encode output format: %s", ext)
+	}
+	if err != nil {
+		return nil, err
+	}
 	return out.Bytes(), nil
 }
