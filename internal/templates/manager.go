@@ -548,12 +548,9 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 	})
 
 	env.AddFunction("load_data", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		if len(args) == 0 {
-			return value.Undefined(), fmt.Errorf("load_data expects a file path")
-		}
-		p, ok := args[0].AsString()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("load_data path must be string")
+		p, err := firstPathArg(args, kwargs)
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("load_data: %w", err)
 		}
 		resolved := strings.TrimPrefix(path.Clean(strings.ReplaceAll(p, "\\", "/")), "/")
 		b, err := fs.ReadFile(sourceFS, resolved)

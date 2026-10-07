@@ -147,6 +147,7 @@ func TestLoadData(t *testing.T) {
 		want     string
 	}{
 		{name: "json object field access", data: map[string]string{"data.json": `{"name":"Alice","age":30}`}, template: `{{ load_data("data.json").name }}`, want: "Alice"},
+		{name: "path keyword", data: map[string]string{"data.json": `{"name":"Alice"}`}, template: `{{ load_data(path="data.json").name }}`, want: "Alice"},
 		{name: "json array iteration", data: map[string]string{"list.json": `["a","b","c"]`}, template: `{% for x in load_data("list.json") %}{{ x }}{% endfor %}`, want: "abc"},
 		{name: "toml field access", data: map[string]string{"data.toml": "name = \"Bob\"\n"}, template: `{{ load_data("data.toml").name }}`, want: "Bob"},
 		{name: "yaml field access", data: map[string]string{"data.yaml": "name: Carol\n"}, template: `{{ load_data("data.yaml").name }}`, want: "Carol"},
