@@ -222,7 +222,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	if err := s.renderTaxonomies(opts.LiveReloadURL); err != nil {
 		return err
 	}
-	if s.Config.GenerateSitemap {
+	if s.Config.GenerateSitemap && !s.hasStaticFile("sitemap.xml") {
 		if err := s.renderSitemap(); err != nil {
 			return err
 		}
@@ -232,16 +232,18 @@ func (s *Site) Build(opts BuildOptions) error {
 			return err
 		}
 	}
-	if err := s.render404(opts.LiveReloadURL); err != nil {
-		return err
+	if !s.hasStaticFile("404.html") {
+		if err := s.render404(opts.LiveReloadURL); err != nil {
+			return err
+		}
 	}
-	if s.Config.GenerateRobotsTXT {
+	if s.Config.GenerateRobotsTXT && !s.hasStaticFile("robots.txt") {
 		if err := s.renderRobots(); err != nil {
 			return err
 		}
 	}
 
-	if s.Config.BuildSearchIndex || s.Config.Search.BuildIndex {
+	if (s.Config.BuildSearchIndex || s.Config.Search.BuildIndex) && !s.hasStaticFile(s.Config.Search.IndexPath) {
 		if err := search.BuildIndexFS(s.Library, s.OutputFS, s.Config.Search.IndexPath); err != nil {
 			return err
 		}
