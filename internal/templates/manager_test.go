@@ -363,3 +363,27 @@ func TestNormalizeTemplateSyntax(t *testing.T) {
 		})
 	}
 }
+
+func TestEscapeFilterUsesTeraEntities(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{name: "slash and quotes", template: `{{ v | escape }}`, want: `&lt;a href=&quot;&#x2F;x&quot;&gt;it&#x27;s &amp;&lt;&#x2F;a&gt;`},
+		{name: "short alias", template: `{{ v | e }}`, want: `&lt;a href=&quot;&#x2F;x&quot;&gt;it&#x27;s &amp;&lt;&#x2F;a&gt;`},
+		{name: "plain slash outside escape stays", template: `{{ "a/b" }}`, want: `a/b`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fys := newMemoryFS(map[string][]byte{"templates/probe.html": []byte(tc.template)})
+			mgr, err := LoadManagerFS(fys, fys, "")
+			require.NoError(t, err)
+			out, err := mgr.Render("probe.html", map[string]any{"v": `<a href="/x">it's &</a>`})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, out)
+		})
+	}
+}

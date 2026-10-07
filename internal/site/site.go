@@ -1533,7 +1533,6 @@ func (s *Site) writeOutput(rel string, content string) error {
 	if s.Config.MinifyHTML && strings.HasSuffix(lowerRel, ".html") {
 		content = minifyHTML(content)
 	}
-	content = strings.ReplaceAll(content, "&#x2f;", "&#x2F;")
 
 	if strings.HasSuffix(lowerRel, ".html") || strings.HasSuffix(lowerRel, ".xml") || strings.HasSuffix(lowerRel, ".txt") || strings.HasSuffix(lowerRel, ".css") || strings.HasSuffix(lowerRel, ".js") {
 		if content != "" && !strings.HasSuffix(content, "\n") {

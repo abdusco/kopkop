@@ -34,6 +34,15 @@ import (
 	"github.com/abdusco/kopkop/internal/slug"
 )
 
+var teraHTMLEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+	"'", "&#x27;",
+	"/", "&#x2F;",
+)
+
 var namedEndTagRe = regexp.MustCompile(`\{%(\s*end(?:macro|block))\s+[a-zA-Z0-9_]+\s*%\}`)
 var templateTagRe = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
 var stringLiteralRe = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'`)
@@ -740,6 +749,16 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 			"height":      value.FromInt(int64(res.Height)),
 		}), nil
 	})
+
+	// Tera spells the escaped slash &#x2F; where MiniJinja uses &#x2f;.
+	teraEscape := func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
+		if val.IsNone() || val.IsUndefined() {
+			return value.FromSafeString(""), nil
+		}
+		return value.FromSafeString(teraHTMLEscaper.Replace(val.String())), nil
+	}
+	env.AddFilter("escape", teraEscape)
+	env.AddFilter("e", teraEscape)
 
 	env.AddFilter("base64_encode", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		s, ok := val.AsString()
