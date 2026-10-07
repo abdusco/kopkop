@@ -90,7 +90,11 @@ func (c *responseCache) Load(req *http.Request, body string) (urlCacheEntry, err
 }
 
 func fetchURL(req *http.Request) (urlCacheEntry, error) {
-	resp, err := loadURLClient.Do(req)
+	timeout, err := loadURLTimeout()
+	if err != nil {
+		return urlCacheEntry{}, err
+	}
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return urlCacheEntry{}, fmt.Errorf("load_url: request failed: %w", err)
 	}
@@ -98,9 +102,12 @@ func fetchURL(req *http.Request) (urlCacheEntry, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return urlCacheEntry{}, fmt.Errorf("load_url: HTTP %d for %s", resp.StatusCode, req.URL)
 	}
-	b, err := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxLoadURLBytes+1))
 	if err != nil {
 		return urlCacheEntry{}, fmt.Errorf("load_url: reading response: %w", err)
+	}
+	if len(b) > maxLoadURLBytes {
+		return urlCacheEntry{}, fmt.Errorf("load_url: response for %s exceeds %d bytes", req.URL, maxLoadURLBytes)
 	}
 	return urlCacheEntry{body: b, contentType: resp.Header.Get("Content-Type")}, nil
 }
@@ -135,16 +142,24 @@ func contentTypeToFormat(ct string) string {
 	}
 }
 
-var loadURLClient = func() *http.Client {
-	timeout := 30 * time.Second
-	// use config
-	if v := os.Getenv("LOAD_URL_TIMEOUT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			timeout = d
-		}
+const (
+	defaultLoadURLTimeout = 30 * time.Second
+	maxLoadURLBytes       = 64 << 20
+)
+
+// loadURLTimeout reads LOAD_URL_TIMEOUT (a Go duration such as "5s"). It is an
+// environment setting because it is about the build machine's network, not the site.
+func loadURLTimeout() (time.Duration, error) {
+	v := os.Getenv("LOAD_URL_TIMEOUT")
+	if v == "" {
+		return defaultLoadURLTimeout, nil
 	}
-	return &http.Client{Timeout: timeout}
-}()
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("load_url: invalid LOAD_URL_TIMEOUT %q: want a positive duration like 5s", v)
+	}
+	return d, nil
+}
 
 func parseData(b []byte, format string) (value.Value, error) {
 	switch format {
