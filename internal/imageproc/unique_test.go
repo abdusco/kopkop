@@ -52,7 +52,7 @@ func TestResizeUniqueNamesAndConcurrentCache(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			urls[i], errors[i] = resizeURL(p,"a/photo.png", 2, 2)
+			urls[i], errors[i] = resizeURL(p, "a/photo.png", 2, 2)
 		}()
 	}
 	wg.Wait()
@@ -61,10 +61,10 @@ func TestResizeUniqueNamesAndConcurrentCache(t *testing.T) {
 		require.Equal(t, urls[0], urls[i])
 	}
 	require.Equal(t, int32(1), calls.Load())
-	copyURL, err := resizeURL(p,"copy/photo.png", 2, 2)
+	copyURL, err := resizeURL(p, "copy/photo.png", 2, 2)
 	require.NoError(t, err)
 	require.Equal(t, urls[0], copyURL)
-	otherURL, err := resizeURL(p,"b/photo.png", 2, 2)
+	otherURL, err := resizeURL(p, "b/photo.png", 2, 2)
 	require.NoError(t, err)
 	require.NotEqual(t, urls[0], otherURL)
 	red, err := output.ReadFile(urls[0][1:])
@@ -72,13 +72,13 @@ func TestResizeUniqueNamesAndConcurrentCache(t *testing.T) {
 	blue, err := output.ReadFile(otherURL[1:])
 	require.NoError(t, err)
 	require.NotEqual(t, red, blue)
-	sizeURL, err := resizeURL(p,"a/photo.png", 3, 2)
+	sizeURL, err := resizeURL(p, "a/photo.png", 3, 2)
 	require.NoError(t, err)
 	require.NotEqual(t, urls[0], sizeURL)
 	changed, err := source.ReadFile("b/photo.png")
 	require.NoError(t, err)
 	require.NoError(t, source.WriteFile("a/photo.png", changed, 0o644))
-	changedURL, err := resizeURL(p,"a/photo.png", 2, 2)
+	changedURL, err := resizeURL(p, "a/photo.png", 2, 2)
 	require.NoError(t, err)
 	require.Equal(t, otherURL, changedURL)
 	require.Equal(t, int32(3), calls.Load())
@@ -98,9 +98,9 @@ func TestResizeRetriesFailedTransforms(t *testing.T) {
 		}
 		return resizeWithGo(params)
 	}}}
-	_, err := resizeURL(p,"photo.png", 1, 1)
+	_, err := resizeURL(p, "photo.png", 1, 1)
 	require.ErrorContains(t, err, "transient failure")
-	_, err = resizeURL(p,"photo.png", 1, 1)
+	_, err = resizeURL(p, "photo.png", 1, 1)
 	require.NoError(t, err)
 	require.Equal(t, 2, calls)
 }

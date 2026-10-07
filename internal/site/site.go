@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -136,7 +137,7 @@ func (s *Site) Reload() (*Site, error) {
 }
 
 func (s *Site) Load(includeDrafts bool) error {
-	lib, err := content.LoadLibrary(s.BasePath, s.Config, content.LoadOptions{IncludeDrafts: includeDrafts, RenderMarkdown: false})
+	lib, err := content.LoadLibrary(s.BasePath, s.Config, content.LoadOptions{IncludeDrafts: includeDrafts})
 	if err != nil {
 		return err
 	}
@@ -259,11 +260,6 @@ func (s *Site) Build(opts BuildOptions) error {
 	return nil
 }
 
-func (s *Site) CheckExternalLinks() ([]linkcheck.Result, error) {
-	results, err := s.CheckLinks()
-	return lo.Filter(results, func(r linkcheck.Result, _ int) bool { return !r.Internal }), err
-}
-
 func (s *Site) CheckLinks() ([]linkcheck.Result, error) {
 	return linkcheck.CheckOutput(s.OutputFS, s.Config.BaseURL, s.Config.LinkChecker)
 }
@@ -378,7 +374,15 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 			return view.(map[string]any)
 		}
 	}
-	earlier, later := s.pageNeighbors(rel, pg)
+	view := s.pageViewBase(pg)
+	for key, neighbor := range s.pageNeighbors(rel, pg) {
+		view[key] = neighbor
+	}
+	return view
+}
+
+// pageViewBase is the template view of pg without its neighbouring pages.
+func (s *Site) pageViewBase(pg *content.Page) map[string]any {
 	extra := pg.Meta.Extra
 	if extra == nil {
 		extra = map[string]any{}
@@ -421,8 +425,6 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"date":          dateVal,
 		"updated":       updatedVal,
 		"extra":         extra,
-		"earlier":       earlier,
-		"later":         later,
 		"assets": lo.Map(pg.Assets, func(asset string, _ int) string {
 			return strings.TrimRight(pg.Permalink, "/") + "/" + pg.AssetRelPath(asset)
 		}),
@@ -463,10 +465,41 @@ func (s *Site) tocView(toc []content.Heading) []map[string]any {
 	})
 }
 
-func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[string]any) {
-	_ = rel
-	_ = pg
-	return nil, nil
+// pageNeighbors returns the pages next to pg in its section's order. Sections
+// sorted by date give earlier/later, sections sorted by weight give
+// lighter/heavier; all four keys are always present and nil when not applicable.
+func (s *Site) pageNeighbors(rel string, pg *content.Page) map[string]any {
+	out := map[string]any{"earlier": nil, "later": nil, "lighter": nil, "heavier": nil}
+	sec, ok := s.Library.Sections[pg.ParentSection]
+	if !ok {
+		return out
+	}
+	var prevKey, nextKey string
+	switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
+	case "date": // newest first
+		prevKey, nextKey = "later", "earlier"
+	case "weight": // lightest first
+		prevKey, nextKey = "lighter", "heavier"
+	default:
+		return out
+	}
+	idx := slices.Index(sec.Pages, rel)
+	if idx < 0 {
+		return out
+	}
+	view := func(i int) any {
+		if i < 0 || i >= len(sec.Pages) {
+			return nil
+		}
+		other := s.Library.Pages[sec.Pages[i]]
+		if other == nil {
+			return nil
+		}
+		return s.pageViewBase(other)
+	}
+	out[prevKey] = view(idx - 1)
+	out[nextKey] = view(idx + 1)
+	return out
 }
 
 func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {

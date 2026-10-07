@@ -13,14 +13,12 @@ import (
 	"github.com/abdusco/kopkop/internal/content/frontmatter"
 	"github.com/abdusco/kopkop/internal/content/pathing"
 	"github.com/abdusco/kopkop/internal/filesystem"
-	"github.com/abdusco/kopkop/internal/markdown"
 	"github.com/abdusco/kopkop/internal/slug"
 	"github.com/samber/lo"
 )
 
 type LoadOptions struct {
-	IncludeDrafts  bool
-	RenderMarkdown bool
+	IncludeDrafts bool
 }
 
 type contentFile struct {
@@ -94,29 +92,6 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 		}
 		lib.Pages[item.File.RelPath] = item.Page
 		lib.Permalinks[item.File.RelPath] = item.Page.Permalink
-	}
-
-	if opts.RenderMarkdown {
-		for _, item := range loaded {
-			if item.Page == nil {
-				continue
-			}
-			page := item.Page
-			res, renderErr := markdown.RenderContent(page.RawContent, markdown.RenderContext{
-				Permalinks:           lib.Permalinks,
-				CurrentPagePath:      page.RelativePath,
-				CurrentPagePermalink: page.Permalink,
-				InsertAnchorLinks:    cfg.Markdown.InsertAnchorLinks,
-			})
-			if renderErr == nil {
-				page.Content = res.Body
-				page.Summary = res.Summary
-				for _, h := range res.TOC {
-					page.TOC = append(page.TOC, Heading{ID: h.ID, Level: h.Level, Title: h.Title})
-				}
-				page.ExternalLinks = append(page.ExternalLinks, res.ExternalLinks...)
-			}
-		}
 	}
 
 	attachPagesToSections(lib)
@@ -489,47 +464,6 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 		for _, term := range tax.Terms {
 			term.Pages = lo.Uniq(term.Pages)
 			sort.Strings(term.Pages)
-		}
-	}
-}
-
-func filterDraftSections(lib *Library) {
-	hiddenPrefixes := []string{}
-	for rel, sec := range lib.Sections {
-		if sec.Meta.Draft {
-			dir := filepath.ToSlash(filepath.Dir(rel))
-			if dir == "." {
-				dir = ""
-			}
-			hiddenPrefixes = append(hiddenPrefixes, dir)
-			delete(lib.Sections, rel)
-		}
-	}
-	for rel := range lib.Sections {
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if dir == "." {
-			dir = ""
-		}
-		for _, prefix := range hiddenPrefixes {
-			if prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
-				delete(lib.Sections, rel)
-				break
-			}
-		}
-	}
-	if len(hiddenPrefixes) == 0 {
-		return
-	}
-	for rel := range lib.Pages {
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if dir == "." {
-			dir = ""
-		}
-		for _, prefix := range hiddenPrefixes {
-			if prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
-				delete(lib.Pages, rel)
-				break
-			}
 		}
 	}
 }

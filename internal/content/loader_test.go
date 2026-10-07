@@ -24,7 +24,7 @@ func TestLoadLibrary_BuildsPagesSectionsTaxonomies(t *testing.T) {
 	cfg.BaseURL = "https://example.com"
 	cfg.Taxonomies = []config.TaxonomyConfig{{Name: "tags"}}
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: true})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{})
 	require.NoError(t, err)
 
 	require.Len(t, lib.Sections, 2)
@@ -123,15 +123,14 @@ func TestLoadLibrary_SkipsDraftsByDefault(t *testing.T) {
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 	assert.Len(t, lib.Pages, 0)
 
-	lib2, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: true, RenderMarkdown: false})
+	lib2, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: true})
 	require.NoError(t, err)
 	assert.Len(t, lib2.Pages, 1)
 }
-
 
 func TestLoadLibrary_IgnoresHiddenAndConfiguredPatterns(t *testing.T) {
 	t.Parallel()
@@ -147,7 +146,7 @@ func TestLoadLibrary_IgnoresHiddenAndConfiguredPatterns(t *testing.T) {
 	cfg.BaseURL = "https://example.com"
 	cfg.IgnoredContent = []string{"ignore-me.md"}
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 	_, hasHidden := lib.Pages[".hidden.md"]
 	_, hasIgnored := lib.Pages["ignore-me.md"]
@@ -168,7 +167,7 @@ func TestLoadLibrary_AllowsMarkdownWithoutFrontMatter(t *testing.T) {
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 	require.Contains(t, lib.Sections, "_index.md")
 	require.Contains(t, lib.Pages, "plain.md")
@@ -188,7 +187,7 @@ func TestLoadLibrary_ColocatedIndexPageKeepsSectionPath(t *testing.T) {
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 
 	pg := lib.Pages["posts/with-assets/index.md"]
@@ -210,12 +209,11 @@ func TestLoadLibrary_DraftSectionHidesChildPages(t *testing.T) {
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 	require.NotContains(t, lib.Sections, "secret/_index.md")
 	require.NotContains(t, lib.Pages, "secret/page.md")
 }
-
 
 func TestLoadLibrary_ParsesFrontMatterWithUTF8BOM(t *testing.T) {
 	t.Parallel()
@@ -228,7 +226,7 @@ func TestLoadLibrary_ParsesFrontMatterWithUTF8BOM(t *testing.T) {
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 	pg := lib.Pages["hello.md"]
 	require.NotNil(t, pg)
@@ -247,7 +245,7 @@ func TestLoadLibrary_AttachesNestedIndexPageToNearestAncestorSection(t *testing.
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
 
-	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false, RenderMarkdown: false})
+	lib, err := LoadLibrary(root, cfg, LoadOptions{IncludeDrafts: false})
 	require.NoError(t, err)
 
 	rootSection := lib.Sections["_index.md"]
