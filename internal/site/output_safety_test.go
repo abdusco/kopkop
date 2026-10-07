@@ -25,6 +25,7 @@ func TestOutputPathSafety(t *testing.T) {
 		{name: "theme", output: "themes/demo/public", unsafe: true},
 		{name: "data", output: "data", unsafe: true},
 		{name: "git", output: ".git", unsafe: true},
+		{name: "hidden tool dir", output: ".tool/public", unsafe: true},
 		{name: "config", output: "zola.toml", unsafe: true},
 		{name: "watch path", output: "watched/public", unsafe: true},
 		{name: "public", output: "public"},
@@ -37,6 +38,7 @@ func TestOutputPathSafety(t *testing.T) {
 			parent := t.TempDir()
 			base := filepath.Join(parent, "site")
 			require.NoError(t, os.MkdirAll(filepath.Join(base, "content"), 0o755))
+			require.NoError(t, os.MkdirAll(filepath.Join(base, ".tool"), 0o755))
 			config := filepath.Join(base, "zola.toml")
 			require.NoError(t, os.WriteFile(config, []byte("base_url='https://example.com'"), 0o644))
 			sentinel := filepath.Join(base, "content", "post.md")

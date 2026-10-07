@@ -26,8 +26,16 @@ func validateOutputPath(basePath, configPath, outputPath string, extraWatchPaths
 	}
 
 	protected := []string{configPath}
-	for _, name := range []string{"content", "templates", "static", "themes", "data", ".git", ".agents", ".codex"} {
+	for _, name := range []string{"content", "templates", "static", "themes", "data", ".git"} {
 		protected = append(protected, filepath.Join(basePath, name))
+	}
+	// Any hidden directory (.git, tool state) must survive an output wipe.
+	if entries, err := os.ReadDir(basePath); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
+				protected = append(protected, filepath.Join(basePath, entry.Name()))
+			}
+		}
 	}
 	for _, name := range extraWatchPaths {
 		if !filepath.IsAbs(name) {

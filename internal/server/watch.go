@@ -35,7 +35,7 @@ func newWatchPlan(s *site.Site, extra []string) watchPlan {
 		p.roots = append(p.roots, abs(name))
 	}
 	outputPath, _ := filepath.Abs(s.OutputPath)
-	p.excluded = []string{outputPath, abs(".git"), abs(".agents"), abs(".codex")}
+	p.excluded = []string{outputPath, abs(".git")}
 	if s.Config.LinkChecker.CacheFile != "" {
 		p.excluded = append(p.excluded, abs(s.Config.LinkChecker.CacheFile))
 	}
