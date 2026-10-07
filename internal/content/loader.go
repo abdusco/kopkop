@@ -13,6 +13,7 @@ import (
 	"github.com/abdusco/kopkop/internal/content/frontmatter"
 	"github.com/abdusco/kopkop/internal/content/pathing"
 	"github.com/abdusco/kopkop/internal/filesystem"
+	"github.com/abdusco/kopkop/internal/gitdates"
 	"github.com/abdusco/kopkop/internal/slug"
 	"github.com/samber/lo"
 )
@@ -47,6 +48,14 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 		return !shouldIgnoreContent(file.RelPath, cfg.IgnoredContent)
 	})
 
+	var commitDates map[string]time.Time
+	if cfg.GitDates {
+		commitDates, err = gitdates.LastCommits(basePath, "content")
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	loaded := make([]loadedContent, 0, len(files))
 	sourceFS := filesystem.NewDiskFS(basePath)
 	for _, file := range files {
@@ -70,6 +79,11 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 		}
 		if page.Meta.Draft && !draftsEnabled {
 			continue
+		}
+		if page.Updated == nil {
+			if t, ok := commitDates["content/"+filepath.ToSlash(file.RelPath)]; ok {
+				page.Updated = &t
+			}
 		}
 
 		loaded = append(loaded, loadedContent{File: file, Page: page})

@@ -142,31 +142,33 @@ type TaxonomyConfig struct {
 
 type Config struct {
 	// UnsupportedKeys reports ignored settings for compatibility with Zola configs.
-	UnsupportedKeys     []string `toml:"-"`
-	metadata            *toml.MetaData
-	BaseURL             string           `toml:"base_url"`
-	Title               string           `toml:"title"`
-	Description         string           `toml:"description"`
-	Author              string           `toml:"author"`
-	Extra               map[string]any   `toml:"extra"`
-	Theme               string           `toml:"theme"`
-	OutputDir           string           `toml:"output_dir"`
-	LinkStrategy        string           `toml:"link_strategy"`
-	BuildSearchIndex    bool             `toml:"build_search_index"`
-	GenerateFeeds       bool             `toml:"generate_feeds"`
-	FeedFilenames       []string         `toml:"feed_filenames"`
-	FeedLimit           int              `toml:"feed_limit"`
-	GenerateSitemap     bool             `toml:"generate_sitemap"`
-	GenerateRobotsTXT   bool             `toml:"generate_robots_txt"`
-	MinifyHTML          bool             `toml:"minify_html"`
-	Taxonomies          []TaxonomyConfig `toml:"taxonomies"`
-	Markdown            Markdown         `toml:"markdown"`
-	Search              Search           `toml:"search"`
-	LinkChecker         LinkChecker      `toml:"link_checker"`
-	IgnoredContent      []string         `toml:"ignored_content"`
-	ExtraWatchPaths     []string         `toml:"extra_watch_paths"`
-	PathsKeepDates      bool             `toml:"paths_keep_dates"`
-	EnableDraftsInBuild bool             `toml:"enable_drafts_in_build"`
+	UnsupportedKeys   []string `toml:"-"`
+	metadata          *toml.MetaData
+	BaseURL           string           `toml:"base_url"`
+	Title             string           `toml:"title"`
+	Description       string           `toml:"description"`
+	Author            string           `toml:"author"`
+	Extra             map[string]any   `toml:"extra"`
+	Theme             string           `toml:"theme"`
+	OutputDir         string           `toml:"output_dir"`
+	LinkStrategy      string           `toml:"link_strategy"`
+	BuildSearchIndex  bool             `toml:"build_search_index"`
+	GenerateFeeds     bool             `toml:"generate_feeds"`
+	FeedFilenames     []string         `toml:"feed_filenames"`
+	FeedLimit         int              `toml:"feed_limit"`
+	GenerateSitemap   bool             `toml:"generate_sitemap"`
+	GenerateRobotsTXT bool             `toml:"generate_robots_txt"`
+	MinifyHTML        bool             `toml:"minify_html"`
+	Taxonomies        []TaxonomyConfig `toml:"taxonomies"`
+	Markdown          Markdown         `toml:"markdown"`
+	Search            Search           `toml:"search"`
+	LinkChecker       LinkChecker      `toml:"link_checker"`
+	IgnoredContent    []string         `toml:"ignored_content"`
+	ExtraWatchPaths   []string         `toml:"extra_watch_paths"`
+	PathsKeepDates    bool             `toml:"paths_keep_dates"`
+	// GitDates fills page.updated from the last git commit when front matter has no `updated`.
+	GitDates            bool `toml:"git_dates"`
+	EnableDraftsInBuild bool `toml:"enable_drafts_in_build"`
 }
 
 func Default() Config {

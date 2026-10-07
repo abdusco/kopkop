@@ -177,6 +177,11 @@ extra_watch_paths = []
 # Whether to retain filename date prefixes in URL slugs
 paths_keep_dates = false
 
+# Fill page.updated from the last git commit that touched the page, unless its
+# front matter sets `updated`. Needs full history (fetch-depth: 0 on CI).
+# Commits listed in .git-blame-ignore-revs are skipped.
+git_dates = false
+
 # Include drafts in all builds (overridden by --drafts flag)
 enable_drafts_in_build = false
 
