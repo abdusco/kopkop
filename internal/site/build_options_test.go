@@ -14,8 +14,8 @@ func TestInvalidBuildOptionsPreserveOutputAndConfiguration(t *testing.T) {
 		opts      BuildOptions
 		wantError string
 	}{
-		{"relative base URL", BuildOptions{BaseURL: "/blog", Force: true}, "absolute HTTP"},
-		{"negative concurrency", BuildOptions{Concurrency: -1, Force: true}, "concurrency"},
+		{"relative base URL", BuildOptions{BaseURL: "/blog"}, "absolute HTTP"},
+		{"negative concurrency", BuildOptions{Concurrency: -1}, "concurrency"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

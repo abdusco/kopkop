@@ -147,6 +147,7 @@ func TestLoadData(t *testing.T) {
 		want     string
 	}{
 		{name: "json object field access", data: map[string]string{"data.json": `{"name":"Alice","age":30}`}, template: `{{ load_data("data.json").name }}`, want: "Alice"},
+		{name: "path keyword", data: map[string]string{"data.json": `{"name":"Alice"}`}, template: `{{ load_data(path="data.json").name }}`, want: "Alice"},
 		{name: "json array iteration", data: map[string]string{"list.json": `["a","b","c"]`}, template: `{% for x in load_data("list.json") %}{{ x }}{% endfor %}`, want: "abc"},
 		{name: "toml field access", data: map[string]string{"data.toml": "name = \"Bob\"\n"}, template: `{{ load_data("data.toml").name }}`, want: "Bob"},
 		{name: "yaml field access", data: map[string]string{"data.yaml": "name: Carol\n"}, template: `{{ load_data("data.yaml").name }}`, want: "Carol"},
@@ -319,4 +320,46 @@ func newMemoryFS(files map[string][]byte) *filesystem.MemoryFS {
 		_ = m.WriteFile(name, data, 0o644)
 	}
 	return m
+}
+
+func TestResizeImageHelper(t *testing.T) {
+	t.Parallel()
+
+	fys := newMemoryFS(map[string][]byte{
+		"images/wide.png":          mustPNG(40, 20),
+		"templates/fit.txt":        []byte(`{% set r = resize_image(path="images/wide.png", width=10, op="fit_width") %}{{ r.width }}x{{ r.height }} {{ r.url }}`),
+		"templates/positional.txt": []byte(`{{ resize_image("images/wide.png", 8, 4, op="scale").url }}`),
+		"templates/meta.txt":       []byte(`{{ get_image_metadata(path="images/wide.png").width }}`),
+	})
+	mgr, err := LoadManagerFS(fys, fys, "")
+	require.NoError(t, err)
+	ctx := map[string]any{"config": map[string]any{"base_url": "https://example.com/blog/"}}
+
+	out, err := mgr.Render("fit.txt", ctx)
+	require.NoError(t, err)
+	assert.Regexp(t, `^10x5 https://example\.com/blog/processed_images/[0-9a-f]{64}-10x5\.png$`, out)
+
+	out, err = mgr.Render("positional.txt", ctx)
+	require.NoError(t, err)
+	assert.Regexp(t, `^https://example\.com/blog/processed_images/[0-9a-f]{64}-8x4\.png$`, out)
+
+	out, err = mgr.Render("meta.txt", ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "40", out)
+}
+
+func TestNormalizeTemplateSyntax(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, in, want string }{
+		{"macro call in expression", `{{ macros::input(name="a") }}`, `{{ macros.input(name="a") }}`},
+		{"macro call in tag", `{% set x = m::f(1) %}`, `{% set x = m.f(1) %}`},
+		{"named end tag", `{% endmacro input %}`, `{% endmacro %}`},
+		{"prose untouched", `<p>Vec::new( and std::string(x)</p>`, `<p>Vec::new( and std::string(x)</p>`},
+		{"string literal untouched", `{{ "a::b(" }} {{ m::f() }}`, `{{ "a::b(" }} {{ m.f() }}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, normalizeTemplateSyntax(tc.in))
+		})
+	}
 }

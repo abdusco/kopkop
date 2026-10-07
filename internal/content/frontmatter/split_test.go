@@ -225,3 +225,18 @@ Body
 		})
 	}
 }
+
+func TestUTCLocalDates(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"date", "date = 2024-01-15", "date = 2024-01-15T00:00:00Z"},
+		{"datetime", "updated=2024-01-15 10:30", "updated=2024-01-15T10:30:00Z"},
+		{"seconds and comment", "date = 2024-01-15T10:30:05 # c", "date = 2024-01-15T10:30:05Z # c"},
+		{"offset untouched", "date = 2024-01-15T10:30:05+02:00", "date = 2024-01-15T10:30:05+02:00"},
+		{"string untouched", `date = "2024-01-15"`, `date = "2024-01-15"`},
+		{"after table untouched", "[extra]\ndate = 2024-01-15", "[extra]\ndate = 2024-01-15"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, utcLocalDates(tc.in))
+		})
+	}
+}

@@ -27,7 +27,7 @@ func TestTemplatesSeeCompleteRenderedGraph(t *testing.T) {
 			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 			require.NoError(t, err)
 			for i := 0; i < 2; i++ {
-				require.NoError(t, s.Build(BuildOptions{BuildMode: mode, Force: true}))
+				require.NoError(t, s.Build(BuildOptions{BuildMode: mode}))
 				for _, tc := range []struct {
 					name string
 					want []string

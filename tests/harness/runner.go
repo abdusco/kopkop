@@ -20,7 +20,6 @@ func BuildWithKopkop(root string, configPath string, outputDir string, includeDr
 	return s.Build(site.BuildOptions{
 		IncludeDrafts: includeDrafts,
 		BuildMode:     site.BuildDisk,
-		Force:         true,
 	})
 }
 
@@ -36,7 +35,7 @@ func BuildWithZola(zolaBin string, root string, configName string, outputDir str
 	if err != nil {
 		return err
 	}
-	args := []string{"--root", absRoot, "--config", configName, "build", "--output-dir", outputDir, "--force"}
+	args := []string{"--root", absRoot, "--config", configName, "build", "--output-dir", outputDir}
 	if drafts {
 		args = append(args, "--drafts")
 	}

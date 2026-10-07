@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -12,14 +13,12 @@ import (
 	"github.com/abdusco/kopkop/internal/content/frontmatter"
 	"github.com/abdusco/kopkop/internal/content/pathing"
 	"github.com/abdusco/kopkop/internal/filesystem"
-	"github.com/abdusco/kopkop/internal/markdown"
 	"github.com/abdusco/kopkop/internal/slug"
 	"github.com/samber/lo"
 )
 
 type LoadOptions struct {
-	IncludeDrafts  bool
-	RenderMarkdown bool
+	IncludeDrafts bool
 }
 
 type contentFile struct {
@@ -95,29 +94,6 @@ func LoadLibrary(basePath string, cfg config.Config, opts LoadOptions) (*Library
 		lib.Permalinks[item.File.RelPath] = item.Page.Permalink
 	}
 
-	if opts.RenderMarkdown {
-		for _, item := range loaded {
-			if item.Page == nil {
-				continue
-			}
-			page := item.Page
-			res, renderErr := markdown.RenderContent(page.RawContent, markdown.RenderContext{
-				Permalinks:           lib.Permalinks,
-				CurrentPagePath:      page.RelativePath,
-				CurrentPagePermalink: page.Permalink,
-				InsertAnchorLinks:    cfg.Markdown.InsertAnchorLinks,
-			})
-			if renderErr == nil {
-				page.Content = res.Body
-				page.Summary = res.Summary
-				for _, h := range res.TOC {
-					page.TOC = append(page.TOC, Heading{ID: h.ID, Level: h.Level, Title: h.Title})
-				}
-				page.ExternalLinks = append(page.ExternalLinks, res.ExternalLinks...)
-			}
-		}
-	}
-
 	attachPagesToSections(lib)
 	attachSubsections(lib)
 	buildTaxonomies(lib, cfg)
@@ -167,6 +143,9 @@ func collectContentFiles(contentDir string) ([]contentFile, error) {
 			return err
 		}
 		if d.IsDir() {
+			if path != contentDir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".md" {
@@ -203,18 +182,62 @@ func shouldIgnoreContent(rel string, patterns []string) bool {
 		return true
 	}
 	for _, p := range patterns {
-		p = filepath.ToSlash(p)
-		if match, _ := filepath.Match(p, rel); match {
+		if re := compileGlob(filepath.ToSlash(p)); re != nil && re.MatchString(rel) {
 			return true
-		}
-		if strings.HasPrefix(p, "**/") {
-			trim := strings.TrimPrefix(p, "**/")
-			if match, _ := filepath.Match(trim, base); match {
-				return true
-			}
 		}
 	}
 	return false
+}
+
+// compileGlob translates a globset-style pattern, where "*" and "**" also
+// match "/", into an anchored regular expression. It returns nil for patterns
+// that are not valid globs.
+func compileGlob(pattern string) *regexp.Regexp {
+	var b strings.Builder
+	b.WriteString("^")
+	inGroup := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch c {
+		case '*':
+			stars := 1
+			for i+1 < len(pattern) && pattern[i+1] == '*' {
+				i++
+				stars++
+			}
+			// "**/" also matches zero directories.
+			if stars > 1 && i+1 < len(pattern) && pattern[i+1] == '/' {
+				b.WriteString("(?:.*/)?")
+				i++
+			} else {
+				b.WriteString(".*")
+			}
+		case '?':
+			b.WriteString(".")
+		case '[', ']':
+			b.WriteByte(c)
+		case '{':
+			inGroup = true
+			b.WriteString("(?:")
+		case '}':
+			inGroup = false
+			b.WriteString(")")
+		case ',':
+			if inGroup {
+				b.WriteString("|")
+			} else {
+				b.WriteString(",")
+			}
+		default:
+			b.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return nil
+	}
+	return re
 }
 
 func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, error) {
@@ -248,7 +271,8 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 			}
 		}
 	}
-	hasColocated, _ := hasColocatedAssets(absPath)
+	assets, _ := findColocatedAssets(absPath, relPath, cfg.IgnoredContent)
+	hasColocated := len(assets) > 0
 	if baseName == "index" {
 		if strings.TrimSpace(meta.Slug) == "" {
 			pageSlug = ""
@@ -288,7 +312,6 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		return nil, metadataError(relPath, content, "updated", "must be a valid YYYY-MM-DD date or RFC3339 timestamp")
 	}
 
-	assets, _ := findColocatedAssets(absPath)
 	page.Assets = assets
 
 	return page, nil
@@ -299,14 +322,6 @@ func metadataError(relPath, content, field, message string) error {
 		return fmt.Errorf("%s:%d: invalid %s: %s", relPath, line, field, message)
 	}
 	return fmt.Errorf("%s: invalid %s: %s", relPath, field, message)
-}
-
-func hasColocatedAssets(pageAbsPath string) (bool, error) {
-	assets, err := findColocatedAssets(pageAbsPath)
-	if err != nil {
-		return false, err
-	}
-	return len(assets) > 0, nil
 }
 
 func parseSection(absPath, relPath, content string, cfg config.Config) (*Section, error) {
@@ -386,41 +401,42 @@ func attachPagesToSections(lib *Library) {
 	for _, sec := range lib.Sections {
 		sec.Pages = lo.Uniq(sec.Pages)
 
-		sortBy := strings.ToLower(strings.TrimSpace(sec.Meta.SortBy))
-		if sortBy == "date" {
-			sort.SliceStable(sec.Pages, func(i, j int) bool {
-				pi := lib.Pages[sec.Pages[i]]
-				pj := lib.Pages[sec.Pages[j]]
-				if pi.Date != nil && pj.Date != nil {
-					if !pi.Date.Equal(*pj.Date) {
-						return pi.Date.After(*pj.Date)
-					}
-				}
-				if pi.Date != nil && pj.Date == nil {
-					return true
-				}
-				if pi.Date == nil && pj.Date != nil {
-					return false
-				}
-				return sec.Pages[i] < sec.Pages[j]
-			})
-			continue
-		}
-		if sortBy == "weight" {
-			sort.SliceStable(sec.Pages, func(i, j int) bool {
-				pi := lib.Pages[sec.Pages[i]]
-				pj := lib.Pages[sec.Pages[j]]
-				if pi.Meta.Weight != pj.Meta.Weight {
-					return pi.Meta.Weight < pj.Meta.Weight
-				}
-				return sec.Pages[i] < sec.Pages[j]
-			})
-			continue
-		}
-		sort.SliceStable(sec.Pages, func(i, j int) bool {
-			return sec.Pages[i] < sec.Pages[j]
-		})
+		sortSectionPages(lib, sec)
 	}
+}
+
+// sortSectionPages orders sec.Pages by the section's sort_by; this is the one
+// ordering used for rendering, pagination and feeds.
+func sortSectionPages(lib *Library, sec *Section) {
+	sort.SliceStable(sec.Pages, func(i, j int) bool {
+		ri, rj := sec.Pages[i], sec.Pages[j]
+		pi, pj := lib.Pages[ri], lib.Pages[rj]
+		switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
+		case "date":
+			if pi.Date != nil && pj.Date != nil && !pi.Date.Equal(*pj.Date) {
+				return pi.Date.After(*pj.Date)
+			}
+			if (pi.Date == nil) != (pj.Date == nil) {
+				return pi.Date != nil
+			}
+			if pi.Meta.Title != pj.Meta.Title {
+				return pi.Meta.Title < pj.Meta.Title
+			}
+		case "weight":
+			// Pages without a weight come last.
+			wi, wj := pi.Meta.Weight, pj.Meta.Weight
+			if (wi == nil) != (wj == nil) {
+				return wi != nil
+			}
+			if wi != nil && *wi != *wj {
+				return *wi < *wj
+			}
+			if pi.Date != nil && pj.Date != nil && !pi.Date.Equal(*pj.Date) {
+				return pi.Date.After(*pj.Date)
+			}
+		}
+		return ri < rj
+	})
 }
 
 func buildTaxonomies(lib *Library, cfg config.Config) {
@@ -448,47 +464,6 @@ func buildTaxonomies(lib *Library, cfg config.Config) {
 		for _, term := range tax.Terms {
 			term.Pages = lo.Uniq(term.Pages)
 			sort.Strings(term.Pages)
-		}
-	}
-}
-
-func filterDraftSections(lib *Library) {
-	hiddenPrefixes := []string{}
-	for rel, sec := range lib.Sections {
-		if sec.Meta.Draft {
-			dir := filepath.ToSlash(filepath.Dir(rel))
-			if dir == "." {
-				dir = ""
-			}
-			hiddenPrefixes = append(hiddenPrefixes, dir)
-			delete(lib.Sections, rel)
-		}
-	}
-	for rel := range lib.Sections {
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if dir == "." {
-			dir = ""
-		}
-		for _, prefix := range hiddenPrefixes {
-			if prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
-				delete(lib.Sections, rel)
-				break
-			}
-		}
-	}
-	if len(hiddenPrefixes) == 0 {
-		return
-	}
-	for rel := range lib.Pages {
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if dir == "." {
-			dir = ""
-		}
-		for _, prefix := range hiddenPrefixes {
-			if prefix == "" || dir == prefix || strings.HasPrefix(dir, prefix+"/") {
-				delete(lib.Pages, rel)
-				break
-			}
 		}
 	}
 }
@@ -609,29 +584,63 @@ func parentSectionPath(rel string) string {
 	return fmt.Sprintf("%s/_index.md", dir)
 }
 
-func findColocatedAssets(pageAbsPath string) ([]string, error) {
+// findColocatedAssets lists the non-Markdown files in a bundle's directory tree.
+// Hidden files, files matching ignored_content, and subdirectories that hold
+// their own pages or sections are skipped.
+func findColocatedAssets(pageAbsPath, relPath string, ignored []string) ([]string, error) {
 	name := strings.TrimSuffix(filepath.Base(pageAbsPath), filepath.Ext(pageAbsPath))
 	if name != "index" && !strings.HasPrefix(name, "index.") {
 		return []string{}, nil
 	}
 	dir := filepath.Dir(pageAbsPath)
-	ent, err := os.ReadDir(dir)
+	// Paths for ignored_content are relative to content/.
+	contentDir := dir
+	if relDir := filepath.ToSlash(filepath.Dir(relPath)); relDir != "." {
+		for range strings.Split(relDir, "/") {
+			contentDir = filepath.Dir(contentDir)
+		}
+	}
+	out := []string{}
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != dir && (strings.HasPrefix(d.Name(), ".") || holdsContent(path)) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(contentDir, path)
+		if err != nil || shouldIgnoreContent(filepath.ToSlash(rel), ignored) {
+			return nil
+		}
+		out = append(out, path)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := []string{}
-	for _, e := range ent {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if strings.HasSuffix(name, ".md") {
-			continue
-		}
-		out = append(out, filepath.Join(dir, name))
-	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// holdsContent reports whether dir is a section or a page bundle of its own.
+func holdsContent(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() && strings.HasSuffix(name, ".md") && (strings.HasPrefix(name, "_index.") || strings.HasPrefix(name, "index.")) {
+			return true
+		}
+	}
+	return false
 }
 
 func parsePageFrontMatterOptional(relPath string, contentStr string) (PageFrontMatter, string, error) {

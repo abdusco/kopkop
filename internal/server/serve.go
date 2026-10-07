@@ -59,7 +59,7 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 	mount := strings.TrimRight(preview.Path, "/")
 	liveAddr := mount + "/__livereload"
 	build := func(candidate *site.Site) error {
-		if err := candidate.Build(site.BuildOptions{IncludeDrafts: opts.IncludeDrafts, BuildMode: site.BuildMemory, BaseURL: preview.String(), LiveReloadURL: liveAddr, Force: true}); err != nil {
+		if err := candidate.Build(site.BuildOptions{IncludeDrafts: opts.IncludeDrafts, BuildMode: site.BuildMemory, BaseURL: preview.String(), LiveReloadURL: liveAddr}); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {

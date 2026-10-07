@@ -78,7 +78,7 @@ func TestBuildRechecksOutputSafety(t *testing.T) {
 			s, err := New(SiteParams{BasePath: base, ConfigPath: config})
 			require.NoError(t, err)
 			s.OutputPath = base
-			require.ErrorContains(t, s.Build(BuildOptions{BuildMode: mode, Force: true}), "unsafe output directory")
+			require.ErrorContains(t, s.Build(BuildOptions{BuildMode: mode}), "unsafe output directory")
 			require.FileExists(t, sentinel)
 		})
 	}
@@ -108,7 +108,7 @@ func TestOutputPathSymlinkSafety(t *testing.T) {
 			s, err := New(SiteParams{BasePath: base, ConfigPath: config, OutputDir: tc.output})
 			require.NoError(t, err)
 			require.NoError(t, os.Symlink(tc.target, filepath.Join(base, "link")))
-			require.ErrorContains(t, s.Build(BuildOptions{Force: true}), "unsafe output directory")
+			require.ErrorContains(t, s.Build(BuildOptions{}), "unsafe output directory")
 			data, err := os.ReadFile(sentinel)
 			require.NoError(t, err)
 			require.Equal(t, "keep me", string(data))

@@ -9,7 +9,9 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/mitsuhiko/minijinja/minijinja-go/v2 v2.16.0
 	github.com/samber/lo v1.53.0
+	github.com/sourcegraph/conc v0.3.0
 	github.com/stretchr/testify v1.11.1
+	github.com/tdewolff/minify/v2 v2.24.10
 	github.com/yuin/goldmark v1.7.16
 	golang.org/x/image v0.36.0
 	golang.org/x/net v0.51.0
@@ -20,9 +22,10 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/sourcegraph/conc v0.3.0 // indirect
-	github.com/tdewolff/minify/v2 v2.24.10 // indirect
 	github.com/tdewolff/parse/v2 v2.8.10 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 )

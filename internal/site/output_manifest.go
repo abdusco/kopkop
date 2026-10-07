@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,7 +41,7 @@ func (s *Site) validateOutputManifest() error {
 			if err != nil {
 				return err
 			}
-			add(filepath.Join(strings.TrimPrefix(pg.Path, "/"), filepath.Base(asset)), "asset "+filepath.ToSlash(source))
+			add(filepath.Join(strings.TrimPrefix(pg.Path, "/"), pg.AssetRelPath(asset)), "asset "+filepath.ToSlash(source))
 		}
 	}
 	for rel, sec := range s.Library.Sections {
@@ -82,20 +83,28 @@ func (s *Site) validateOutputManifest() error {
 			}
 		}
 	}
-	add("404.html", "generated 404 page")
+	// A static file with the same name replaces the generated artifact.
+	addGenerated := func(name, source string) {
+		if s.hasStaticFile(name) {
+			log.Printf("warning: static file %q replaces the %s", name, source)
+			return
+		}
+		add(name, source)
+	}
+	addGenerated("404.html", "generated 404 page")
 	if s.Config.GenerateSitemap {
-		add("sitemap.xml", "generated sitemap")
+		addGenerated("sitemap.xml", "generated sitemap")
 	}
 	if s.Config.GenerateRobotsTXT {
-		add("robots.txt", "generated robots.txt")
+		addGenerated("robots.txt", "generated robots.txt")
 	}
 	if s.Config.GenerateFeeds {
 		for _, name := range s.feedFilenames() {
-			add(name, "site feed "+name)
+			addGenerated(name, "site feed "+name)
 		}
 	}
 	if s.Config.BuildSearchIndex || s.Config.Search.BuildIndex {
-		add(s.Config.Search.IndexPath, "search index")
+		addGenerated(s.Config.Search.IndexPath, "search index")
 	}
 	// Reserve this name whenever highlighting is enabled, even if a template
 	// ultimately omits highlighted content or a <head> element.
@@ -187,4 +196,18 @@ func aliasOutputPath(alias string) string {
 		return filepath.FromSlash(name)
 	}
 	return filepath.Join(filepath.FromSlash(name), "index.html")
+}
+
+// hasStaticFile reports whether the site or its theme ships rel under static/.
+func (s *Site) hasStaticFile(rel string) bool {
+	roots := []string{"static"}
+	if s.Config.Theme != "" {
+		roots = append(roots, path.Join("themes", s.Config.Theme, "static"))
+	}
+	for _, root := range roots {
+		if info, err := s.Templates.SourceFS.Stat(path.Join(root, filepath.ToSlash(rel))); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }

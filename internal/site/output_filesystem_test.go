@@ -24,7 +24,7 @@ func TestBuildModesProduceCompleteMatchingArtifacts(t *testing.T) {
 		"static/nested/file.txt":       "Static",
 		"content/bundle/index.md":      "+++\ntitle='Bundle'\naliases=['old']\n+++\n```go\nvar x = 1\n```",
 		"content/bundle/asset.txt":     "Bundle asset",
-		"templates/page.html":          `<html><head></head><body>{{ page.content|safe }}<img src="{{ resize_image("data/logo.png", 1, 1) }}"></body></html>`,
+		"templates/page.html":          `<html><head></head><body>{{ page.content|safe }}<img src="{{ resize_image(path="data/logo.png", width=1, height=1, op="scale").url }}"></body></html>`,
 	} {
 		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
@@ -47,7 +47,7 @@ func TestBuildModesProduceCompleteMatchingArtifacts(t *testing.T) {
 			if tc.mode == BuildMemory {
 				require.NoError(t, os.WriteFile(filepath.Join(s.OutputPath, "disk-sentinel"), []byte("keep"), 0o644))
 			}
-			require.NoError(t, s.Build(BuildOptions{BuildMode: tc.mode, Force: true}))
+			require.NoError(t, s.Build(BuildOptions{BuildMode: tc.mode}))
 			artifacts := map[string][]byte{}
 			require.NoError(t, fs.WalkDir(s.OutputFS, ".", func(name string, entry fs.DirEntry, err error) error {
 				if err != nil {

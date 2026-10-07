@@ -76,7 +76,7 @@ generate_robots_txt = true
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "post", "index.html"))
 	require.NoError(t, err)
@@ -119,12 +119,12 @@ generate_robots_txt = true
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputDir: first})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true, Concurrency: 1}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Concurrency: 1}))
 
 	s2, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputDir: second})
 	require.NoError(t, err)
 	require.NoError(t, s2.Load(false))
-	require.NoError(t, s2.Build(BuildOptions{BuildMode: BuildDisk, Force: true, Concurrency: 4}))
+	require.NoError(t, s2.Build(BuildOptions{BuildMode: BuildDisk, Concurrency: 4}))
 
 	filesA := collectFiles(t, first)
 	filesB := collectFiles(t, second)
@@ -163,7 +163,7 @@ generate_robots_txt = false
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "index.html"))
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ generate_robots_txt = false
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "page", "2", "index.html"))
 	require.NoError(t, err)
@@ -244,7 +244,7 @@ generate_robots_txt = false
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "index.html"))
 	require.NoError(t, err)
@@ -279,7 +279,7 @@ taxonomies = [{name = "podcast_authors", feed = true}]
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "podcast-authors", "index.html"))
 	require.NoError(t, err)
@@ -315,7 +315,7 @@ generate_robots_txt = false
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "atom.xml"))
 	require.NoError(t, err)
@@ -348,7 +348,7 @@ generate_robots_txt = false
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	_, err = os.Stat(filepath.Join(root, "public", "no-render", "index.html"))
 	require.Error(t, err)
@@ -385,7 +385,7 @@ highlight_theme = "github"
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	withCodeHTML, err := os.ReadFile(filepath.Join(root, "public", "posts", "with-code", "index.html"))
 	require.NoError(t, err)
@@ -429,7 +429,7 @@ highlight_theme = "github"
 	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
-	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk, Force: true}))
+	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
 
 	html, err := os.ReadFile(filepath.Join(root, "public", "index.html"))
 	require.NoError(t, err)

@@ -7,10 +7,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -137,7 +137,7 @@ func (s *Site) Reload() (*Site, error) {
 }
 
 func (s *Site) Load(includeDrafts bool) error {
-	lib, err := content.LoadLibrary(s.BasePath, s.Config, content.LoadOptions{IncludeDrafts: includeDrafts, RenderMarkdown: false})
+	lib, err := content.LoadLibrary(s.BasePath, s.Config, content.LoadOptions{IncludeDrafts: includeDrafts})
 	if err != nil {
 		return err
 	}
@@ -199,11 +199,6 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
-		if !opts.Force {
-			if _, err := os.Stat(s.OutputPath); err == nil {
-				return fmt.Errorf("directory %q already exists; use --force to overwrite", s.OutputPath)
-			}
-		}
 		// Recheck immediately before deletion, including symlinks changed since New.
 		if err := validateOutputPath(s.BasePath, s.ConfigPath, s.OutputPath, s.Config.ExtraWatchPaths); err != nil {
 			return err
@@ -228,7 +223,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	if err := s.renderTaxonomies(opts.LiveReloadURL); err != nil {
 		return err
 	}
-	if s.Config.GenerateSitemap {
+	if s.Config.GenerateSitemap && !s.hasStaticFile("sitemap.xml") {
 		if err := s.renderSitemap(); err != nil {
 			return err
 		}
@@ -238,16 +233,18 @@ func (s *Site) Build(opts BuildOptions) error {
 			return err
 		}
 	}
-	if err := s.render404(opts.LiveReloadURL); err != nil {
-		return err
+	if !s.hasStaticFile("404.html") {
+		if err := s.render404(opts.LiveReloadURL); err != nil {
+			return err
+		}
 	}
-	if s.Config.GenerateRobotsTXT {
+	if s.Config.GenerateRobotsTXT && !s.hasStaticFile("robots.txt") {
 		if err := s.renderRobots(); err != nil {
 			return err
 		}
 	}
 
-	if s.Config.BuildSearchIndex || s.Config.Search.BuildIndex {
+	if (s.Config.BuildSearchIndex || s.Config.Search.BuildIndex) && !s.hasStaticFile(s.Config.Search.IndexPath) {
 		if err := search.BuildIndexFS(s.Library, s.OutputFS, s.Config.Search.IndexPath); err != nil {
 			return err
 		}
@@ -261,11 +258,6 @@ func (s *Site) Build(opts BuildOptions) error {
 	}
 
 	return nil
-}
-
-func (s *Site) CheckExternalLinks() ([]linkcheck.Result, error) {
-	results, err := s.CheckLinks()
-	return lo.Filter(results, func(r linkcheck.Result, _ int) bool { return !r.Internal }), err
 }
 
 func (s *Site) CheckLinks() ([]linkcheck.Result, error) {
@@ -302,9 +294,7 @@ func (s *Site) renderAllContent() error {
 	sort.Strings(sectionPaths)
 	for _, rel := range sectionPaths {
 		sec := s.Library.Sections[rel]
-		rendered, err := s.renderContentWithShortcodes(sec.RawContent, map[string]any{
-			"title": sec.Meta.Title, "path": sec.Path, "permalink": sec.Permalink,
-		}, "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), defs)
+		rendered, err := s.renderContentWithShortcodes(sec.RawContent, s.sectionView(rel, sec, []map[string]any{}), "section", sec.RelativePath, sec.Permalink, s.sectionAnchorLinksEnabled(sec), defs)
 		if err != nil {
 			return fmt.Errorf("render section markdown %q: %w", rel, err)
 		}
@@ -384,7 +374,15 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 			return view.(map[string]any)
 		}
 	}
-	earlier, later := s.pageNeighbors(rel, pg)
+	view := s.pageViewBase(pg)
+	for key, neighbor := range s.pageNeighbors(rel, pg) {
+		view[key] = neighbor
+	}
+	return view
+}
+
+// pageViewBase is the template view of pg without its neighbouring pages.
+func (s *Site) pageViewBase(pg *content.Page) map[string]any {
 	extra := pg.Meta.Extra
 	if extra == nil {
 		extra = map[string]any{}
@@ -427,17 +425,22 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"date":          dateVal,
 		"updated":       updatedVal,
 		"extra":         extra,
-		"earlier":       earlier,
-		"later":         later,
-		"assets":        pg.Assets,
-		"taxonomies":    taxonomies,
-		"aliases":       pg.Meta.Aliases,
-		"draft":         pg.Meta.Draft,
+		"assets": lo.Map(pg.Assets, func(asset string, _ int) string {
+			return strings.TrimRight(pg.Permalink, "/") + "/" + pg.AssetRelPath(asset)
+		}),
+		"taxonomies": taxonomies,
+		"aliases":    pg.Meta.Aliases,
+		"draft":      pg.Meta.Draft,
 	}
 }
 
 func (s *Site) sectionView(rel string, sec *content.Section, pages []map[string]any) map[string]any {
+	extra := sec.Meta.Extra
+	if extra == nil {
+		extra = map[string]any{}
+	}
 	return map[string]any{
+		"extra":             extra,
 		"title":             sec.Meta.Title,
 		"description":       sec.Meta.Description,
 		"path":              sec.Path,
@@ -462,30 +465,65 @@ func (s *Site) tocView(toc []content.Heading) []map[string]any {
 	})
 }
 
-func (s *Site) pageNeighbors(rel string, pg *content.Page) (map[string]any, map[string]any) {
-	_ = rel
-	_ = pg
-	return nil, nil
+// pageNeighbors returns the pages next to pg in its section's order. Sections
+// sorted by date give earlier/later, sections sorted by weight give
+// lighter/heavier; all four keys are always present and nil when not applicable.
+func (s *Site) pageNeighbors(rel string, pg *content.Page) map[string]any {
+	out := map[string]any{"earlier": nil, "later": nil, "lighter": nil, "heavier": nil}
+	sec, ok := s.Library.Sections[pg.ParentSection]
+	if !ok {
+		return out
+	}
+	var prevKey, nextKey string
+	switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
+	case "date": // newest first
+		prevKey, nextKey = "later", "earlier"
+	case "weight": // lightest first
+		prevKey, nextKey = "lighter", "heavier"
+	default:
+		return out
+	}
+	idx := slices.Index(sec.Pages, rel)
+	if idx < 0 {
+		return out
+	}
+	view := func(i int) any {
+		if i < 0 || i >= len(sec.Pages) {
+			return nil
+		}
+		other := s.Library.Pages[sec.Pages[i]]
+		if other == nil {
+			return nil
+		}
+		return s.pageViewBase(other)
+	}
+	out[prevKey] = view(idx - 1)
+	out[nextKey] = view(idx + 1)
+	return out
 }
 
 func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
-	pageCtx := map[string]any{
-		"title":     pg.Meta.Title,
-		"path":      pg.Path,
-		"permalink": pg.Permalink,
-		"toc":       []map[string]any{},
-		"extra":     map[string]any{},
-	}
-	if pg.Meta.Extra != nil {
-		pageCtx["extra"] = pg.Meta.Extra
-	}
-	return s.renderContentWithShortcodes(pg.RawContent, pageCtx, "page", pg.RelativePath, pg.Permalink, s.pageAnchorLinksEnabled(pg), defs)
+	return s.renderContentWithShortcodes(pg.RawContent, s.pageView(pg.RelativePath, pg), "page", pg.RelativePath, pg.Permalink, s.pageAnchorLinksEnabled(pg), defs)
 }
 
 func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any, contextKey, relativePath, permalink string, anchors bool, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
 	out, scs, err := shortcode.Parse(raw)
 	if err != nil {
 		return markdown.Rendered{}, err
+	}
+
+	// Shortcodes see the same config and lookup helpers as page templates.
+	shortcodeContext := func(sc shortcode.Shortcode) map[string]any {
+		ctx := s.baseTemplateContext()
+		ctx["nth"] = sc.Nth
+		ctx[contextKey] = contentCtx
+		for k, v := range sc.Args {
+			ctx[k] = v
+		}
+		if sc.Body != nil {
+			ctx["body"] = strings.TrimRight(*sc.Body, "\n")
+		}
+		return ctx
 	}
 
 	contentWithMD, htmlSCs, err := shortcode.InsertMarkdownShortcodes(out, scs,
@@ -497,15 +535,7 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 			if def.FileType != "md" {
 				return shortcode.Placeholder, nil
 			}
-			ctx := map[string]any{"nth": sc.Nth}
-			ctx[contextKey] = contentCtx
-			for k, v := range sc.Args {
-				ctx[k] = v
-			}
-			if sc.Body != nil {
-				ctx["body"] = strings.TrimRight(*sc.Body, "\n")
-			}
-			return s.Templates.Engine.Render(def.Template, ctx)
+			return s.Templates.Engine.Render(def.Template, shortcodeContext(sc))
 		},
 		func(sc shortcode.Shortcode) bool {
 			def, ok := defs[sc.Name]
@@ -533,23 +563,11 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 		if !ok {
 			return markdown.Rendered{}, fmt.Errorf("unknown shortcode: %s", sc.Name)
 		}
-		ctx := map[string]any{"nth": sc.Nth}
-		ctx[contextKey] = contentCtx
-		for k, v := range sc.Args {
-			ctx[k] = v
-		}
-		if sc.Body != nil {
-			ctx["body"] = strings.TrimRight(*sc.Body, "\n")
-		}
-		repl, rErr := s.Templates.Engine.Render(def.Template, ctx)
+		repl, rErr := s.Templates.Engine.Render(def.Template, shortcodeContext(sc))
 		if rErr != nil {
 			return markdown.Rendered{}, rErr
 		}
-		if !strings.Contains(repl, "<") {
-			repl = strings.TrimRight(repl, "\n") + "\n"
-		} else {
-			repl = strings.TrimRight(repl, "\n") + "\n"
-		}
+		repl = strings.TrimRight(repl, "\n") + "\n"
 		rendered.Body = strings.Replace(rendered.Body, shortcode.Placeholder, repl, 1)
 	}
 	rendered.Body = strings.ReplaceAll(rendered.Body, `<span id="continue-reading"></span>`+"\n<h", `<span id="continue-reading"></span><h`)
@@ -647,6 +665,7 @@ func (s *Site) renderSections(liveReloadURL string) error {
 			"description":       "",
 			"path":              "/",
 			"relative_path":     "_index.md",
+			"extra":             map[string]any{},
 			"permalink":         strings.TrimRight(s.Config.BaseURL, "/") + "/",
 			"pages":             []map[string]any{},
 			"subsections":       []string{},
@@ -792,41 +811,7 @@ func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
 		entries = append(entries, pageEntry{rel: p, pg: pg})
 	}
 
-	switch strings.ToLower(strings.TrimSpace(sec.Meta.SortBy)) {
-	case "date":
-		sort.SliceStable(entries, func(i, j int) bool {
-			di := entries[i].pg.Date
-			dj := entries[j].pg.Date
-			if di != nil && dj != nil && !di.Equal(*dj) {
-				return di.After(*dj)
-			}
-			if di != nil && dj == nil {
-				return true
-			}
-			if di == nil && dj != nil {
-				return false
-			}
-			if entries[i].pg.Meta.Title != entries[j].pg.Meta.Title {
-				return entries[i].pg.Meta.Title < entries[j].pg.Meta.Title
-			}
-			return entries[i].rel < entries[j].rel
-		})
-	case "weight":
-		sort.SliceStable(entries, func(i, j int) bool {
-			wi := entries[i].pg.Meta.Weight
-			wj := entries[j].pg.Meta.Weight
-			if wi != wj {
-				return wi < wj
-			}
-			if entries[i].pg.Date != nil && entries[j].pg.Date != nil && !entries[i].pg.Date.Equal(*entries[j].pg.Date) {
-				return entries[i].pg.Date.After(*entries[j].pg.Date)
-			}
-			return entries[i].rel < entries[j].rel
-		})
-	default:
-		// preserve content loader order for sections without explicit sorting
-	}
-
+	// sec.Pages is already ordered by the content loader.
 	return lo.Map(entries, func(entry pageEntry, _ int) map[string]any {
 		return s.pageView(entry.rel, entry.pg)
 	})
@@ -1010,7 +995,10 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 					}
 				}
 				for _, feedName := range s.feedFilenames() {
-					feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+taxPath+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, taxPages)
+					feed, err := s.feedXML(feedName, strings.TrimRight(s.Config.BaseURL, "/")+taxPath+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title+" - "+termName, taxPages, map[string]any{"term": termObj, "taxonomy": map[string]any{"name": tax.Name}})
+					if err != nil {
+						return err
+					}
 					if err := s.writeOutput(filepath.Join(strings.TrimPrefix(taxPath, "/"), feedName), feed); err != nil {
 						return err
 					}
@@ -1022,13 +1010,31 @@ func (s *Site) renderTaxonomies(liveReloadURL string) error {
 }
 
 func (s *Site) renderSitemap() error {
-	urls := make([]string, 0, len(s.Library.Permalinks))
-	for _, v := range s.Library.Permalinks {
-		urls = append(urls, v)
+	urls, lastmods := s.sitemapEntries()
+	if !s.hasUserTemplate("sitemap.xml") {
+		return s.writeOutput("sitemap.xml", defaultSitemapXML(urls, lastmods))
 	}
-	sort.Strings(urls)
-	content := s.defaultSitemapXML()
-	return s.writeOutput("sitemap.xml", content)
+	entries := lo.Map(urls, func(u string, _ int) map[string]any {
+		entry := map[string]any{"permalink": u}
+		if lm := lastmods[u]; lm != "" {
+			entry["updated"] = lm
+		}
+		return entry
+	})
+	ctx := s.baseTemplateContext()
+	ctx["entries"] = entries
+	out, err := s.Templates.Render("sitemap.xml", ctx)
+	if err != nil {
+		return fmt.Errorf("render sitemap.xml: %w", err)
+	}
+	return s.writeOutput("sitemap.xml", out)
+}
+
+// hasUserTemplate reports whether the site or its theme provides name, as
+// opposed to the built-in fallbacks.
+func (s *Site) hasUserTemplate(name string) bool {
+	resolved, err := s.Templates.Resolver.Resolve(name, s.Templates.Available)
+	return err == nil && !strings.HasPrefix(resolved, "__zola_builtins/")
 }
 
 func xmlEscape(s string) string {
@@ -1089,7 +1095,8 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, page
 		updated = formatAtomTime(ordered[0].Date)
 	}
 	if updated == "" {
-		updated = time.Now().UTC().Format("2006-01-02T15:04:05+00:00")
+		// Keep the output reproducible: no wall-clock time in generated files.
+		updated = time.Unix(0, 0).UTC().Format("2006-01-02T15:04:05+00:00")
 	}
 
 	var b strings.Builder
@@ -1170,7 +1177,76 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, page
 	return b.String()
 }
 
-func (s *Site) defaultSitemapXML() string {
+// feedXML renders one feed. A site or theme template named after the feed file
+// (atom.xml, rss.xml, ...) wins; otherwise names ending in rss.xml get RSS 2.0
+// and everything else gets Atom.
+func (s *Site) feedXML(name, feedURL, htmlURL, title string, pages []*content.Page, extra map[string]any) (string, error) {
+	ordered := lo.Filter(s.sortedPagesForFeed(pages), func(p *content.Page, _ int) bool { return p.Date != nil })
+	if limit := s.Config.FeedLimit; limit > 0 && len(ordered) > limit {
+		ordered = ordered[:limit]
+	}
+	switch {
+	case s.hasUserTemplate(name):
+		ctx := s.baseTemplateContext()
+		ctx["feed_url"] = feedURL
+		ctx["last_updated"] = ""
+		if len(ordered) > 0 {
+			ctx["last_updated"] = formatAtomTime(ordered[0].Date)
+		}
+		ctx["pages"] = lo.Map(ordered, func(p *content.Page, _ int) map[string]any { return s.pageView(p.RelativePath, p) })
+		for k, v := range extra {
+			ctx[k] = v
+		}
+		out, err := s.Templates.Render(name, ctx)
+		if err != nil {
+			return "", fmt.Errorf("render feed %q: %w", name, err)
+		}
+		return out, nil
+	case strings.HasSuffix(name, "rss.xml"):
+		return s.defaultRSSXML(feedURL, htmlURL, title, ordered), nil
+	default:
+		return s.defaultAtomXML(feedURL, htmlURL, title, ordered), nil
+	}
+}
+
+func (s *Site) defaultRSSXML(feedURL, htmlURL, title string, pages []*content.Page) string {
+	description := cmp.Or(strings.TrimSpace(s.Config.Description), title)
+	var b strings.Builder
+	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	b.WriteString("<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n    <channel>\n")
+	b.WriteString("        <title>" + xmlEscape(title) + "</title>\n")
+	b.WriteString("        <link>" + xmlEscape(htmlURL) + "</link>\n")
+	b.WriteString("        <description>" + xmlEscape(description) + "</description>\n")
+	b.WriteString("        <generator>Zola</generator>\n")
+	b.WriteString("        <atom:link href=\"" + xmlEscape(feedURL) + "\" rel=\"self\" type=\"application/rss+xml\"/>\n")
+	if len(pages) > 0 && pages[0].Date != nil {
+		b.WriteString("        <lastBuildDate>" + pages[0].Date.UTC().Format(time.RFC1123Z) + "</lastBuildDate>\n")
+	}
+	for _, p := range pages {
+		b.WriteString("        <item>\n")
+		b.WriteString("            <title>" + xmlEscape(p.Meta.Title) + "</title>\n")
+		b.WriteString("            <pubDate>" + p.Date.UTC().Format(time.RFC1123Z) + "</pubDate>\n")
+		author := cmp.Or(strings.TrimSpace(s.Config.Author), "Unknown")
+		if len(p.Meta.Authors) > 0 {
+			author = p.Meta.Authors[0]
+		}
+		b.WriteString("            <author>" + xmlEscape(author) + "</author>\n")
+		b.WriteString("            <link>" + xmlEscape(p.Permalink) + "</link>\n")
+		b.WriteString("            <guid>" + xmlEscape(p.Permalink) + "</guid>\n")
+		body := p.Content
+		if p.Summary != nil {
+			body = continueReadingMarkerRe.ReplaceAllString(*p.Summary, "")
+		}
+		b.WriteString("            <description>" + xmlEscapeHTMLPayload(body) + "</description>\n")
+		b.WriteString("        </item>\n")
+	}
+	b.WriteString("    </channel>\n</rss>")
+	return b.String()
+}
+
+// sitemapEntries returns every published URL in sorted order plus the lastmod
+// of those that have one.
+func (s *Site) sitemapEntries() ([]string, map[string]string) {
 	lastmods := map[string]string{}
 	urlsSet := map[string]struct{}{}
 	urlsSet[strings.TrimRight(s.Config.BaseURL, "/")+"/"] = struct{}{}
@@ -1229,6 +1305,10 @@ func (s *Site) defaultSitemapXML() string {
 	}
 
 	sort.Strings(urls)
+	return urls, lastmods
+}
+
+func defaultSitemapXML(urls []string, lastmods map[string]string) string {
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
 	b.WriteString("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n")
@@ -1337,7 +1417,10 @@ func (s *Site) renderFeed() error {
 		allPages = append(allPages, p)
 	}
 	for _, feedName := range s.feedFilenames() {
-		feed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, allPages)
+		feed, err := s.feedXML(feedName, strings.TrimRight(s.Config.BaseURL, "/")+"/"+feedName, strings.TrimRight(s.Config.BaseURL, "/"), s.Config.Title, allPages, nil)
+		if err != nil {
+			return err
+		}
 		if err := s.writeOutput(feedName, feed); err != nil {
 			return err
 		}
@@ -1354,7 +1437,10 @@ func (s *Site) renderFeed() error {
 			return p, p != nil
 		})
 		for _, feedName := range s.feedFilenames() {
-			secFeed := s.defaultAtomXML(strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, secPages)
+			secFeed, err := s.feedXML(feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path+feedName, strings.TrimRight(s.Config.BaseURL, "/")+sec.Path, s.Config.Title+" - "+sec.Meta.Title, secPages, map[string]any{"section": s.sectionView(sec.RelativePath, sec, secEntries)})
+			if err != nil {
+				return err
+			}
 			if err := s.writeOutput(filepath.Join(strings.TrimPrefix(sec.Path, "/"), feedName), secFeed); err != nil {
 				return err
 			}
@@ -1391,7 +1477,7 @@ func (s *Site) taxonomyFeedEnabled(name string) bool {
 }
 
 func (s *Site) render404(liveReloadURL string) error {
-	content, err := s.Templates.Render("404.html", map[string]any{"config": s.Config.TemplateView()})
+	content, err := s.Templates.Render("404.html", s.baseTemplateContext())
 	if err != nil {
 		return fmt.Errorf("render 404.html: %w", err)
 	}
@@ -1400,7 +1486,7 @@ func (s *Site) render404(liveReloadURL string) error {
 }
 
 func (s *Site) renderRobots() error {
-	content, err := s.Templates.Render("robots.txt", map[string]any{"config": s.Config.TemplateView()})
+	content, err := s.Templates.Render("robots.txt", s.baseTemplateContext())
 	if err != nil {
 		return fmt.Errorf("render robots.txt: %w", err)
 	}
@@ -1471,7 +1557,7 @@ func (s *Site) copyStatic() error {
 func (s *Site) copyColocatedAssets() error {
 	for _, p := range s.Library.Pages {
 		for _, asset := range p.Assets {
-			relName := filepath.Base(asset)
+			relName := p.AssetRelPath(asset)
 			destDir := filepath.ToSlash(strings.TrimPrefix(p.Path, "/"))
 			assetPath, err := filepath.Rel(s.BasePath, asset)
 			if err != nil {

@@ -139,7 +139,7 @@ func TestBuildRejectsOutputCollisionsBeforeRendering(t *testing.T) {
 					require.NoError(t, err)
 					var first string
 					for i := 0; i < 3; i++ {
-						err = s.Build(BuildOptions{BuildMode: mode, Force: true})
+						err = s.Build(BuildOptions{BuildMode: mode})
 						require.ErrorContains(t, err, "output collision")
 						require.ErrorContains(t, err, tc.path)
 						for _, owner := range tc.owners {
@@ -185,7 +185,7 @@ func TestOutputManifestAllowsDistinctOutputsAndSiteStaticOverrides(t *testing.T)
 			}
 			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 			require.NoError(t, err)
-			require.NoError(t, s.Build(BuildOptions{BuildMode: mode, Force: true}))
+			require.NoError(t, s.Build(BuildOptions{BuildMode: mode}))
 			body, err := s.OutputFS.ReadFile("assets/style.css")
 			require.NoError(t, err)
 			require.Equal(t, "Site stylesheet", string(body))

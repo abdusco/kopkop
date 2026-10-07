@@ -69,38 +69,30 @@ highlight_theme = "catppuccin-macchiato"
 	assert.Equal(t, "catppuccin-macchiato", cfg.Markdown.HighlightTheme)
 }
 
-func TestFromFile_MarkdownHighlightCodeRemoved(t *testing.T) {
+func TestFromFile_MarkdownHighlightSpellings(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	configPath := filepath.Join(root, "zola.toml")
-	require.NoError(t, os.WriteFile(configPath, []byte(`
-base_url = "https://example.com"
+	for _, tc := range []struct {
+		name, markdown, wantTheme string
+	}{
+		{"highlight_code only", "[markdown]\nhighlight_code = true\n", "github"},
+		{"highlight_code false", "[markdown]\nhighlight_code = false\nhighlight_theme = \"monokai\"\n", ""},
+		{"highlight_code with theme", "[markdown]\nhighlight_code = true\nhighlight_theme = \"monokai\"\n", "monokai"},
+		{"highlighting table", "[markdown.highlighting]\ntheme = \"dracula\"\n", "dracula"},
+		{"highlighting table without theme", "[markdown.highlighting]\nstyle = \"inline\"\n", "github"},
+		{"highlight_theme only", "[markdown]\nhighlight_theme = \"monokai\"\n", "monokai"},
+		{"nothing", "[markdown]\ninsert_anchor_links = true\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			configPath := filepath.Join(t.TempDir(), "zola.toml")
+			require.NoError(t, os.WriteFile(configPath, []byte("base_url = \"https://example.com\"\n"+tc.markdown), 0o644))
 
-[markdown]
-highlight_code = true
-`), 0o644))
-
-	_, err := FromFile(configPath)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "markdown.highlight_code is no longer supported")
-}
-
-func TestFromFile_MarkdownHighlightingTableRemoved(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	configPath := filepath.Join(root, "zola.toml")
-	require.NoError(t, os.WriteFile(configPath, []byte(`
-base_url = "https://example.com"
-
-[markdown.highlighting]
-theme = "github"
-`), 0o644))
-
-	_, err := FromFile(configPath)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "markdown.highlighting is no longer supported")
+			cfg, err := FromFile(configPath)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantTheme, cfg.Markdown.HighlightTheme)
+		})
+	}
 }
 
 func TestConfigValidate_LinkStrategy(t *testing.T) {

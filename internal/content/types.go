@@ -1,6 +1,9 @@
 package content
 
-import "time"
+import (
+	"path/filepath"
+	"time"
+)
 
 type PageFrontMatter struct {
 	Title             string              `toml:"title" yaml:"title"`
@@ -9,7 +12,7 @@ type PageFrontMatter struct {
 	Path              string              `toml:"path" yaml:"path"`
 	Date              any                 `toml:"date" yaml:"date"`
 	Updated           any                 `toml:"updated" yaml:"updated"`
-	Weight            int                 `toml:"weight" yaml:"weight"`
+	Weight            *int                `toml:"weight" yaml:"weight"`
 	Template          string              `toml:"template" yaml:"template"`
 	Aliases           []string            `toml:"aliases" yaml:"aliases"`
 	Taxonomies        map[string][]string `toml:"taxonomies" yaml:"taxonomies"`
@@ -22,23 +25,24 @@ type PageFrontMatter struct {
 }
 
 type SectionFrontMatter struct {
-	Title             string   `toml:"title" yaml:"title"`
-	Description       string   `toml:"description" yaml:"description"`
-	Template          string   `toml:"template" yaml:"template"`
-	PageTemplate      string   `toml:"page_template" yaml:"page_template"`
-	Aliases           []string `toml:"aliases" yaml:"aliases"`
-	SortBy            string   `toml:"sort_by" yaml:"sort_by"`
-	PaginateBy        int      `toml:"paginate_by" yaml:"paginate_by"`
-	PaginatePath      string   `toml:"paginate_path" yaml:"paginate_path"`
-	PaginateReversed  bool     `toml:"paginate_reversed" yaml:"paginate_reversed"`
-	Weight            int      `toml:"weight" yaml:"weight"`
-	GenerateFeed      bool     `toml:"generate_feed" yaml:"generate_feed"`
-	GenerateFeeds     bool     `toml:"generate_feeds" yaml:"generate_feeds"`
-	Transparent       bool     `toml:"transparent" yaml:"transparent"`
-	Render            *bool    `toml:"render" yaml:"render"`
-	Draft             bool     `toml:"draft" yaml:"draft"`
-	InsertAnchorLinks string   `toml:"insert_anchor_links" yaml:"insert_anchor_links"`
-	RedirectTo        string   `toml:"redirect_to" yaml:"redirect_to"`
+	Title             string         `toml:"title" yaml:"title"`
+	Description       string         `toml:"description" yaml:"description"`
+	Template          string         `toml:"template" yaml:"template"`
+	PageTemplate      string         `toml:"page_template" yaml:"page_template"`
+	Aliases           []string       `toml:"aliases" yaml:"aliases"`
+	SortBy            string         `toml:"sort_by" yaml:"sort_by"`
+	PaginateBy        int            `toml:"paginate_by" yaml:"paginate_by"`
+	PaginatePath      string         `toml:"paginate_path" yaml:"paginate_path"`
+	PaginateReversed  bool           `toml:"paginate_reversed" yaml:"paginate_reversed"`
+	Weight            int            `toml:"weight" yaml:"weight"`
+	GenerateFeed      bool           `toml:"generate_feed" yaml:"generate_feed"`
+	GenerateFeeds     bool           `toml:"generate_feeds" yaml:"generate_feeds"`
+	Transparent       bool           `toml:"transparent" yaml:"transparent"`
+	Render            *bool          `toml:"render" yaml:"render"`
+	Draft             bool           `toml:"draft" yaml:"draft"`
+	InsertAnchorLinks string         `toml:"insert_anchor_links" yaml:"insert_anchor_links"`
+	RedirectTo        string         `toml:"redirect_to" yaml:"redirect_to"`
+	Extra             map[string]any `toml:"extra" yaml:"extra"`
 }
 
 type Page struct {
@@ -58,6 +62,16 @@ type Page struct {
 	Date          *time.Time
 	Updated       *time.Time
 	ParentSection string
+}
+
+// AssetRelPath returns asset's slash-separated path relative to the page's
+// directory, which is also its location below the page's output directory.
+func (p *Page) AssetRelPath(asset string) string {
+	rel, err := filepath.Rel(filepath.Dir(p.SourcePath), asset)
+	if err != nil {
+		return filepath.Base(asset)
+	}
+	return filepath.ToSlash(rel)
 }
 
 type Section struct {

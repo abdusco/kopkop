@@ -30,7 +30,7 @@ func TestUnicodeSlugCollisionsBeforeRendering(t *testing.T) {
 			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
 			require.NoError(t, err)
 			for range 3 {
-				err := s.Build(BuildOptions{Force: true})
+				err := s.Build(BuildOptions{})
 				require.ErrorContains(t, err, "output collision")
 				require.ErrorContains(t, err, tc.output)
 			}
