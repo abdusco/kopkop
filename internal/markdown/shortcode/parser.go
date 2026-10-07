@@ -85,11 +85,20 @@ func parseWithCounter(content string, counter *invocationCounter) (string, []Sho
 			out.WriteString(unignored)
 			i += end + 4
 		case "inline":
-			end := strings.Index(content[i:], "}}")
+			end := indexOutsideQuotes(content[i+2:], "}}")
 			if end == -1 {
-				return "", nil, fmt.Errorf("unterminated inline shortcode")
+				out.WriteString("{{")
+				i += 2
+				continue
 			}
+			end += 2
 			inner := strings.TrimSpace(content[i+2 : i+end])
+			if !looksLikeCall(inner) {
+				// Not a shortcode call (for example "{{ .Title }}"): plain text.
+				out.WriteString("{{")
+				i += 2
+				continue
+			}
 			name, args, err := parseCall(inner)
 			if err != nil {
 				return "", nil, err
@@ -125,11 +134,20 @@ func parseWithCounter(content string, counter *invocationCounter) (string, []Sho
 			out.WriteString(closeUnignored)
 			i = bodyEnd + len(closeRaw)
 		case "body":
-			tagEnd := strings.Index(content[i:], "%}")
+			tagEnd := indexOutsideQuotes(content[i+2:], "%}")
 			if tagEnd == -1 {
-				return "", nil, fmt.Errorf("unterminated shortcode body start")
+				out.WriteString("{%")
+				i += 2
+				continue
 			}
+			tagEnd += 2
 			startInner := strings.TrimSpace(content[i+2 : i+tagEnd])
+			if !looksLikeCall(startInner) {
+				// Not a shortcode (for example "{% if x %}"): plain text.
+				out.WriteString("{%")
+				i += 2
+				continue
+			}
 			name, args, err := parseCall(startInner)
 			if err != nil {
 				return "", nil, err
@@ -236,7 +254,39 @@ func findMatchingEnd(content string, from int) (int, int, error) {
 func looksLikeCall(s string) bool {
 	open := strings.IndexByte(s, '(')
 	close := strings.LastIndexByte(s, ')')
-	return open > 0 && close == len(s)-1
+	if open <= 0 || close != len(s)-1 {
+		return false
+	}
+	for _, r := range strings.TrimSpace(s[:open]) {
+		if !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+// indexOutsideQuotes finds needle in s, ignoring occurrences inside quoted strings.
+func indexOutsideQuotes(s, needle string) int {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\'' || c == '"' || c == '`' {
+			quote = c
+			continue
+		}
+		if strings.HasPrefix(s[i:], needle) {
+			return i
+		}
+	}
+	return -1
 }
 
 func parseCall(s string) (string, map[string]any, error) {

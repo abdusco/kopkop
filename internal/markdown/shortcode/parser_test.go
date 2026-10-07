@@ -108,11 +108,29 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:  "invalid shortcode call returns error",
-			input: "bad {{ hello }}",
+			name:  "non-call braces stay text",
+			input: "use {{ .Title }} and {% if x %}y{% endif %} and {{ hello }}",
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, "use {{ .Title }} and {% if x %}y{% endif %} and {{ hello }}", out)
+				assert.Empty(t, shortcodes)
+			},
+		},
+		{
+			name:  "closing braces inside a string argument",
+			input: `{{ code(t="a}}b") }}`,
+			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, Placeholder, out)
+				require.Len(t, shortcodes, 1)
+				assert.Equal(t, "a}}b", shortcodes[0].Args["t"])
+			},
+		},
+		{
+			name:  "call with an invalid argument returns error",
+			input: "bad {{ hello(a=b) }}",
 			assertResult: func(t *testing.T, out string, shortcodes []Shortcode, err error) {
 				require.Error(t, err)
-				assert.ErrorContains(t, err, "invalid shortcode call")
 				assert.Equal(t, "", out)
 				assert.Nil(t, shortcodes)
 			},
