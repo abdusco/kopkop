@@ -27,6 +27,7 @@ type ServeOptions struct {
 	Debounce        time.Duration
 	ExtraWatchPaths []string
 	StoreHTML       bool
+	BaseURL         string
 }
 
 func Run(ctx context.Context, s *site.Site, opts ServeOptions) error {
@@ -51,9 +52,14 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 	if opts.Debounce <= 0 {
 		opts.Debounce = 200 * time.Millisecond
 	}
-	liveAddr := "ws://" + listener.Addr().String() + "/__livereload"
+	preview, err := previewURL(s, opts, listener.Addr())
+	if err != nil {
+		return err
+	}
+	mount := strings.TrimRight(preview.Path, "/")
+	liveAddr := mount + "/__livereload"
 	build := func(candidate *site.Site) error {
-		if err := candidate.Build(site.BuildOptions{IncludeDrafts: opts.IncludeDrafts, BuildMode: site.BuildMemory, LiveReloadURL: liveAddr, Force: true}); err != nil {
+		if err := candidate.Build(site.BuildOptions{IncludeDrafts: opts.IncludeDrafts, BuildMode: site.BuildMemory, BaseURL: preview.String(), LiveReloadURL: liveAddr, Force: true}); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -86,28 +92,17 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 	defer hub.close()
 	var snapshotMu sync.RWMutex
 	current := s
-	mux := http.NewServeMux()
-	mux.HandleFunc("/__livereload", hub.handleWS)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		rel, ok := sanitizeRequestPath(r.URL.Path)
-		if !ok {
-			http.NotFound(w, r)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == liveAddr {
+			hub.handleWS(w, r)
 			return
-		}
-		if rel == "" || strings.HasSuffix(r.URL.Path, "/") {
-			rel = filepath.Join(rel, "index.html")
 		}
 		snapshotMu.RLock()
 		snapshot := current
 		snapshotMu.RUnlock()
-		if v, err := snapshot.MemoryOutput.ReadFile(filepath.ToSlash(rel)); err == nil {
-			w.Header().Set("Content-Type", contentType(rel))
-			_, _ = w.Write(v)
-			return
-		}
-		http.NotFound(w, r)
+		serveOutput(snapshot.MemoryOutput, mount, w, r)
 	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
 	served := make(chan error, 1)
 	serveFinished := false
 	go func() { served <- server.Serve(listener) }()
@@ -123,9 +118,9 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 			<-served
 		}
 	}()
-	log.Printf("Serving at http://%s", listener.Addr())
+	log.Printf("Serving at %s", preview)
 	if opts.OpenBrowser {
-		openURL("http://" + listener.Addr().String())
+		openURL(preview.String())
 	}
 	var timer *time.Timer
 	var ticks <-chan time.Time
@@ -265,25 +260,6 @@ func (h *hub) close() {
 		_ = c.Close()
 	}
 	h.handlers.Wait()
-}
-
-func contentType(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".html":
-		return "text/html; charset=utf-8"
-	case ".css":
-		return "text/css; charset=utf-8"
-	case ".js":
-		return "application/javascript"
-	case ".json":
-		return "application/json"
-	case ".xml":
-		return "application/xml"
-	case ".txt":
-		return "text/plain; charset=utf-8"
-	default:
-		return "application/octet-stream"
-	}
 }
 
 func openURL(u string) {

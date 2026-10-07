@@ -3,8 +3,10 @@ package site
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1595,7 +1597,11 @@ func injectLiveReload(html string, reloadURL string) string {
 	if reloadURL == "" {
 		return html
 	}
-	script := `<script>(function(){var ws=new WebSocket("` + reloadURL + `");ws.onmessage=function(){window.location.reload();};})();</script>`
+	if u, err := url.Parse(reloadURL); err == nil {
+		reloadURL = u.RequestURI()
+	}
+	reloadPath, _ := json.Marshal(reloadURL)
+	script := `<script>(function(){var u=new URL(` + string(reloadPath) + `,window.location.href);u.protocol=location.protocol==='https:'?'wss:':'ws:';var ws=new WebSocket(u);ws.onmessage=function(){window.location.reload();};})();</script>`
 	if strings.Contains(html, "</body>") {
 		return strings.Replace(html, "</body>", script+"</body>", 1)
 	}

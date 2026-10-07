@@ -108,7 +108,8 @@ func TestServeReloadAndShutdown(t *testing.T) {
 					}
 				})
 			}
-			require.Contains(t, fetch("/search_index.json"), "changed.example")
+			require.Contains(t, fetch("/search_index.json"), baseURL)
+			require.NotContains(t, fetch("/search_index.json"), "changed.example")
 			for _, tc := range []struct{ name, path, body string }{
 				{"bad template", "templates/page.html", "{{ broken() }}"},
 				{"bad config", "zola.toml", "invalid = ["},
@@ -153,6 +154,60 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			}
 			requests.Wait()
 		})
+	}
+}
+
+func TestServePreviewSubpath(t *testing.T) {
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"zola.toml":           "base_url='https://production.example/old/'\n",
+		"content/post.md":     "Body",
+		"templates/page.html": `{{ config.base_url }}|{{ page.permalink }}|{{ page.content | safe }}`,
+	} {
+		filename := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(filename), 0o755))
+		require.NoError(t, os.WriteFile(filename, []byte(body), 0o644))
+	}
+	s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	require.NoError(t, err)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	base := "http://" + listener.Addr().String()
+	finished := make(chan error, 1)
+	go func() { finished <- run(ctx, s, ServeOptions{BaseURL: base + "/preview/"}, listener) }()
+	t.Cleanup(func() { cancel(); _ = listener.Close() })
+	client := &http.Client{Timeout: time.Second}
+	defer client.CloseIdleConnections()
+	var body string
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(base + "/preview/post/")
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		body = string(data)
+		return err == nil && resp.StatusCode == 200
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Contains(t, body, base+"/preview/post/")
+	require.NotContains(t, body, "production.example")
+	require.Contains(t, body, `new URL("/preview/__livereload",window.location.href)`)
+	require.Contains(t, body, `location.protocol==='https:'?'wss:':'ws:'`)
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+listener.Addr().String()+"/preview/__livereload", nil)
+	require.NoError(t, err)
+	defer conn.Close()
+	resp, err := client.Get(base + "/post/")
+	require.NoError(t, err)
+	require.Equal(t, 404, resp.StatusCode)
+	_ = resp.Body.Close()
+	cancel()
+	select {
+	case err := <-finished:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server failed to stop")
 	}
 }
 

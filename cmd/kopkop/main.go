@@ -189,6 +189,7 @@ func runServe(args []string) error {
 	configArg := fs.String("config", "", "config file name")
 	interfaceIP := fs.String("interface", "127.0.0.1", "bind interface")
 	port := fs.Int("port", 1111, "bind port")
+	baseURL := fs.String("base-url", "", "advertised preview URL (default: bound address and configured subpath)")
 	drafts := fs.Bool("drafts", false, "include drafts")
 	storeHTML := fs.Bool("store-html", false, "store generated HTML in memory and disk (default: memory only)")
 	open := fs.Bool("open", false, "open browser")
@@ -215,6 +216,7 @@ func runServe(args []string) error {
 	return server.Run(ctx, s, server.ServeOptions{
 		Interface:     *interfaceIP,
 		Port:          *port,
+		BaseURL:       *baseURL,
 		IncludeDrafts: *drafts,
 		OpenBrowser:   *open,
 		StoreHTML:     *storeHTML,

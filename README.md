@@ -111,6 +111,7 @@ Starts a local dev server with filesystem watching and WebSocket live reload.
 | `--root` | `.` | Root site directory |
 | `--interface` | `127.0.0.1` | Bind interface |
 | `--port` | `1111` | Bind port |
+| `--base-url` | bound address | Advertised preview URL, including an optional subpath |
 | `--drafts` | `false` | Include drafts |
 | `--open` | `false` | Open browser on start |
 | `--debounce` | `200ms` | File watcher debounce duration |
@@ -122,7 +123,9 @@ Each rebuild reloads configuration, templates, and content into a fresh site. Re
 
 The unused serve flags `--fast` and `--force` have been removed. Rebuilds always reload the full site; `--store-html` replaces the output directory after a successful build.
 
-Live reload is injected automatically via a WebSocket endpoint at `/__livereload`.
+Preview builds use the actual bound address and port instead of the production origin, preserving the configured URL subpath. Wildcard listeners advertise loopback by default; use `--base-url http://dev.example:1111/blog/` when clients need another hostname or a proxy URL. The advertised URL and mount stay fixed while configuration reloads. HTTPS advertised URLs require a TLS proxy in front of the HTTP listener.
+
+Live reload follows the browser's current host and protocol, with an endpoint at `<subpath>/__livereload`. Directory URLs redirect to a trailing slash. Preview responses support HEAD, ranges, content-based ETags, standard MIME types, and generated `404.html` with a 404 status. Requests outside the configured subpath return 404.
 
 ### `check`
 
