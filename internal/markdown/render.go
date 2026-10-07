@@ -71,8 +71,10 @@ func RootRelative(link string) string {
 	return u.String()
 }
 
-func RenderContent(content string, ctx RenderContext) (Rendered, error) {
-	md := goldmark.New(
+// markdownEngine and highlightFormatter hold no per-document state, so one
+// instance serves every (concurrent) render.
+var (
+	markdownEngine = goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM,
 			extension.Footnote,
@@ -82,11 +84,18 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 			ghtml.WithXHTML(),
 		),
 	)
+	highlightFormatter = chromahtml.New(
+		chromahtml.WithClasses(true),
+		chromahtml.ClassPrefix("z-"),
+		chromahtml.PreventSurroundingPre(true),
+	)
+)
 
+func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	contentWithMarker := moreDividerRe.ReplaceAllString(content, continueReadingHTML)
 	source := []byte(contentWithMarker)
 	pc := parser.NewContext()
-	doc := md.Parser().Parse(text.NewReader(source), parser.WithContext(pc))
+	doc := markdownEngine.Parser().Parse(text.NewReader(source), parser.WithContext(pc))
 
 	transformHeadings(doc, source, ctx.InsertAnchorLinks)
 
@@ -97,7 +106,7 @@ func RenderContent(content string, ctx RenderContext) (Rendered, error) {
 	transformColocatedAssetLinks(doc, ctx)
 
 	buf := bytes.NewBuffer(nil)
-	if err := md.Renderer().Render(buf, source, doc); err != nil {
+	if err := markdownEngine.Renderer().Render(buf, source, doc); err != nil {
 		return Rendered{}, fmt.Errorf("render markdown: %w", err)
 	}
 	body := buf.String()
@@ -300,11 +309,6 @@ func slugifyHeadingID(s string) string {
 }
 
 func applySyntaxHighlight(htmlIn string, themeName string) string {
-	formatter := chromahtml.New(
-		chromahtml.WithClasses(true),
-		chromahtml.ClassPrefix("z-"),
-		chromahtml.PreventSurroundingPre(true),
-	)
 	style := styles.Get(strings.TrimSpace(themeName))
 	if style == nil {
 		style = styles.Get("github")
@@ -335,7 +339,7 @@ func applySyntaxHighlight(htmlIn string, themeName string) string {
 			return block
 		}
 		var out bytes.Buffer
-		if err := formatter.Format(&out, style, iterator); err != nil {
+		if err := highlightFormatter.Format(&out, style, iterator); err != nil {
 			return block
 		}
 		highlighted := strings.TrimRight(out.String(), "\n")

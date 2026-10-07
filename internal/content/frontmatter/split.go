@@ -24,6 +24,10 @@ type RawFrontMatter struct {
 // FieldLine locates a top-level field in the original source, including the
 // opening delimiter and leading whitespace. Zero means the field is absent.
 func FieldLine(content, key string) int {
+	// Most pages lack most keys; skip parsing the front matter again for them.
+	if !strings.Contains(content, key) {
+		return 0
+	}
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
 	raw, _, err := SplitContent(content)
 	if err != nil {
