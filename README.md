@@ -16,7 +16,7 @@ cd kopkop
 go build ./cmd/kopkop
 ```
 
-Requires Go 1.22+.
+Requires Go 1.25+.
 
 ## Quick Start
 
