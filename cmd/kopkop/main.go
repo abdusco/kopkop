@@ -153,7 +153,6 @@ func runBuild(args []string) error {
 	configArg := fs.String("config", "", "config file name")
 	baseURL := fs.String("base-url", "", "override base url")
 	out := fs.String("output-dir", "", "output directory")
-	_ = fs.Bool("force", false, "deprecated: the output directory is always replaced")
 	drafts := fs.Bool("drafts", false, "include drafts")
 	minify := fs.Bool("minify", false, "minify html")
 	concurrency := fs.Int("concurrency", 0, "page rendering workers (0: GOMAXPROCS)")

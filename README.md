@@ -73,7 +73,6 @@ Output must not overlap the site root, configuration, source directories, reposi
 | `--output-dir` | from config | Output directory |
 | `--drafts` | `false` | Include draft pages |
 | `--minify` | `false` | Minify HTML output |
-| `--force` | `false` | Overwrite existing output directory |
 | `--concurrency` | `0` | Page rendering workers; 0 uses GOMAXPROCS |
 
 **Build order:**

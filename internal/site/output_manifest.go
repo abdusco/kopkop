@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -84,9 +85,11 @@ func (s *Site) validateOutputManifest() error {
 	}
 	// A static file with the same name replaces the generated artifact.
 	addGenerated := func(name, source string) {
-		if !s.hasStaticFile(name) {
-			add(name, source)
+		if s.hasStaticFile(name) {
+			log.Printf("warning: static file %q replaces the %s", name, source)
+			return
 		}
+		add(name, source)
 	}
 	addGenerated("404.html", "generated 404 page")
 	if s.Config.GenerateSitemap {
