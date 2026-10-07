@@ -1432,24 +1432,13 @@ func (s *Site) renderRobots() error {
 	return s.writeOutput("robots.txt", content)
 }
 
+// renderAliases writes a redirect page for every alias. Like Zola, sections
+// publish their aliases even with render = false; pages do not.
 func (s *Site) renderAliases() error {
 	for rel, sec := range s.Library.Sections {
 		for _, alias := range sec.Meta.Aliases {
-			redirect, err := s.renderRedirect(sec.Permalink)
-			if err != nil {
+			if err := s.writeAlias(alias, sec.Permalink); err != nil {
 				return fmt.Errorf("render alias %q for section %q: %w", alias, rel, err)
-			}
-			aliasPath := strings.TrimPrefix(alias, "/")
-			file := "index.html"
-			if strings.HasSuffix(aliasPath, ".html") {
-				file = filepath.Base(aliasPath)
-				aliasPath = filepath.Dir(aliasPath)
-			}
-			if aliasPath == "." {
-				aliasPath = ""
-			}
-			if err := s.writeOutput(filepath.Join(aliasPath, file), redirect); err != nil {
-				return err
 			}
 		}
 	}
@@ -1459,25 +1448,20 @@ func (s *Site) renderAliases() error {
 			continue
 		}
 		for _, alias := range p.Meta.Aliases {
-			redirect, err := s.renderRedirect(p.Permalink)
-			if err != nil {
+			if err := s.writeAlias(alias, p.Permalink); err != nil {
 				return fmt.Errorf("render alias %q for page %q: %w", alias, rel, err)
-			}
-			aliasPath := strings.TrimPrefix(alias, "/")
-			file := "index.html"
-			if strings.HasSuffix(aliasPath, ".html") {
-				file = filepath.Base(aliasPath)
-				aliasPath = filepath.Dir(aliasPath)
-			}
-			if aliasPath == "." {
-				aliasPath = ""
-			}
-			if err := s.writeOutput(filepath.Join(aliasPath, file), redirect); err != nil {
-				return err
 			}
 		}
 	}
 	return nil
+}
+
+func (s *Site) writeAlias(alias, target string) error {
+	redirect, err := s.renderRedirect(target)
+	if err != nil {
+		return err
+	}
+	return s.writeOutput(aliasOutputPath(alias), redirect)
 }
 
 func (s *Site) copyStatic() error {
