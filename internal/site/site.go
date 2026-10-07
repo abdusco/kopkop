@@ -508,6 +508,9 @@ func (s *Site) renderMarkdownWithShortcodes(pg *content.Page, defs map[string]te
 }
 
 func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any, contextKey, relativePath, permalink string, anchors bool, defs map[string]templates.ShortcodeDefinition) (markdown.Rendered, error) {
+	if strings.Contains(raw, shortcode.Placeholder) {
+		return markdown.Rendered{}, fmt.Errorf("%s: content contains the reserved text %q", relativePath, shortcode.Placeholder)
+	}
 	out, scs, err := shortcode.Parse(raw)
 	if err != nil {
 		return markdown.Rendered{}, err
@@ -565,7 +568,15 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 	contentCtx["toc"] = lo.Map(rendered.TOC, func(h markdown.Heading, _ int) map[string]any {
 		return map[string]any{"id": h.ID, "title": h.Title, "level": h.Level}
 	})
-	for _, sc := range htmlSCs {
+	// One pass over the body: each placeholder is replaced by the next shortcode's
+	// output, and rendered output is never rescanned for placeholders.
+	parts := strings.Split(rendered.Body, shortcode.Placeholder)
+	if len(parts)-1 != len(htmlSCs) {
+		return markdown.Rendered{}, fmt.Errorf("%s: expected %d shortcode placeholders in rendered content, found %d", relativePath, len(htmlSCs), len(parts)-1)
+	}
+	var body strings.Builder
+	body.WriteString(parts[0])
+	for i, sc := range htmlSCs {
 		def, ok := defs[sc.Name]
 		if !ok {
 			return markdown.Rendered{}, fmt.Errorf("unknown shortcode: %s", sc.Name)
@@ -574,9 +585,10 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 		if rErr != nil {
 			return markdown.Rendered{}, rErr
 		}
-		repl = strings.TrimRight(repl, "\n") + "\n"
-		rendered.Body = strings.Replace(rendered.Body, shortcode.Placeholder, repl, 1)
+		body.WriteString(strings.TrimRight(repl, "\n") + "\n")
+		body.WriteString(parts[i+1])
 	}
+	rendered.Body = body.String()
 	rendered.Body = strings.ReplaceAll(rendered.Body, `<span id="continue-reading"></span>`+"\n<h", `<span id="continue-reading"></span><h`)
 	if rendered.Summary != nil {
 		before, _, _ := strings.Cut(rendered.Body, `<span id="continue-reading"></span>`)
