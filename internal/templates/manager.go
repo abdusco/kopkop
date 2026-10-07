@@ -871,7 +871,15 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 		if !ok {
 			return value.Undefined(), fmt.Errorf("date filter expects a date/time value")
 		}
-		return value.FromString(tm.Format(strftimeToGoLayout(format))), nil
+		if v, ok := kwargs["timezone"]; ok {
+			name, _ := v.AsString()
+			loc, err := time.LoadLocation(name)
+			if err != nil {
+				return value.Undefined(), fmt.Errorf("date filter: unknown timezone %q", name)
+			}
+			tm = tm.In(loc)
+		}
+		return value.FromString(strftime(tm, format)), nil
 	})
 }
 
@@ -895,18 +903,6 @@ func parseTemplateTimeValue(v value.Value) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
-}
-
-func strftimeToGoLayout(format string) string {
-	repl := strings.NewReplacer(
-		"%Y", "2006",
-		"%m", "01",
-		"%d", "02",
-		"%H", "15",
-		"%M", "04",
-		"%S", "05",
-	)
-	return repl.Replace(format)
 }
 
 func firstPathArg(args []value.Value, kwargs map[string]value.Value) (string, error) {
