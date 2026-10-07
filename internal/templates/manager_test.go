@@ -322,6 +322,32 @@ func newMemoryFS(files map[string][]byte) *filesystem.MemoryFS {
 	return m
 }
 
+func TestResizeImageHelper(t *testing.T) {
+	t.Parallel()
+
+	fys := newMemoryFS(map[string][]byte{
+		"images/wide.png":          mustPNG(40, 20),
+		"templates/fit.txt":        []byte(`{% set r = resize_image(path="images/wide.png", width=10, op="fit_width") %}{{ r.width }}x{{ r.height }} {{ r.url }}`),
+		"templates/positional.txt": []byte(`{{ resize_image("images/wide.png", 8, 4, op="scale").url }}`),
+		"templates/meta.txt":       []byte(`{{ get_image_metadata(path="images/wide.png").width }}`),
+	})
+	mgr, err := LoadManagerFS(fys, fys, "")
+	require.NoError(t, err)
+	ctx := map[string]any{"config": map[string]any{"base_url": "https://example.com/blog/"}}
+
+	out, err := mgr.Render("fit.txt", ctx)
+	require.NoError(t, err)
+	assert.Regexp(t, `^10x5 https://example\.com/blog/processed_images/[0-9a-f]{64}-10x5\.png$`, out)
+
+	out, err = mgr.Render("positional.txt", ctx)
+	require.NoError(t, err)
+	assert.Regexp(t, `^https://example\.com/blog/processed_images/[0-9a-f]{64}-8x4\.png$`, out)
+
+	out, err = mgr.Render("meta.txt", ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "40", out)
+}
+
 func TestNormalizeTemplateSyntax(t *testing.T) {
 	t.Parallel()
 

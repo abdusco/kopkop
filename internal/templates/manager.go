@@ -395,14 +395,7 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 	})
 
 	env.AddFunction("get_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		baseURL := ""
-		if cfgVal, ok := state.Lookup("config").AsMap(); ok {
-			if bu, ok := cfgVal["base_url"]; ok {
-				if s, ok := bu.AsString(); ok {
-					baseURL = strings.TrimRight(s, "/")
-				}
-			}
-		}
+		baseURL := configBaseURL(state)
 		p := ""
 		if v, ok := kwargs["path"]; ok {
 			ps, ok := v.AsString()
@@ -687,12 +680,9 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 	})
 
 	env.AddFunction("get_image_metadata", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		if len(args) == 0 {
-			return value.Undefined(), fmt.Errorf("get_image_metadata expects image path")
-		}
-		p, ok := args[0].AsString()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("get_image_metadata path must be string")
+		p, err := firstPathArg(args, kwargs)
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("get_image_metadata: %w", err)
 		}
 		md, err := img.GetMetadata(p)
 		if err != nil {
@@ -706,26 +696,49 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 	})
 
 	env.AddFunction("resize_image", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		if len(args) < 3 {
-			return value.Undefined(), fmt.Errorf("resize_image expects path, width, height")
+		// Accepts Zola's keywords (path, width, height, op) as well as positional path, width, height.
+		p, err := firstPathArg(args, kwargs)
+		if err != nil {
+			return value.Undefined(), fmt.Errorf("resize_image: %w", err)
 		}
-		p, ok := args[0].AsString()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("resize_image path must be string")
+		intArg := func(name string, pos int) (int, error) {
+			v, ok := kwargs[name]
+			if !ok && len(args) > pos {
+				v, ok = args[pos], true
+			}
+			if !ok {
+				return 0, nil
+			}
+			n, isInt := v.AsInt()
+			if !isInt {
+				return 0, fmt.Errorf("resize_image %s must be an integer", name)
+			}
+			return int(n), nil
 		}
-		w, ok := args[1].AsInt()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("resize_image width must be int")
-		}
-		h, ok := args[2].AsInt()
-		if !ok {
-			return value.Undefined(), fmt.Errorf("resize_image height must be int")
-		}
-		url, err := img.Resize(p, int(w), int(h))
+		w, err := intArg("width", 1)
 		if err != nil {
 			return value.Undefined(), err
 		}
-		return value.FromString(url), nil
+		h, err := intArg("height", 2)
+		if err != nil {
+			return value.Undefined(), err
+		}
+		op := imageproc.OpFill
+		if v, ok := kwargs["op"]; ok {
+			if op, ok = v.AsString(); !ok {
+				return value.Undefined(), fmt.Errorf("resize_image op must be a string")
+			}
+		}
+		res, err := img.Process(p, op, w, h)
+		if err != nil {
+			return value.Undefined(), err
+		}
+		return value.FromMap(map[string]value.Value{
+			"url":         value.FromString(configBaseURL(state) + res.URL),
+			"static_path": value.FromString(res.StaticPath),
+			"width":       value.FromInt(int64(res.Width)),
+			"height":      value.FromInt(int64(res.Height)),
+		}), nil
 	})
 
 	env.AddFilter("base64_encode", func(state minijinja.FilterState, val value.Value, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
@@ -916,6 +929,19 @@ func parseTemplateTimeValue(v value.Value) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+// configBaseURL returns config.base_url without a trailing slash, including any
+// path prefix, or "" when the template has no config.
+func configBaseURL(state *minijinja.State) string {
+	if cfg, ok := state.Lookup("config").AsMap(); ok {
+		if bu, ok := cfg["base_url"]; ok {
+			if s, ok := bu.AsString(); ok {
+				return strings.TrimRight(s, "/")
+			}
+		}
+	}
+	return ""
 }
 
 func firstPathArg(args []value.Value, kwargs map[string]value.Value) (string, error) {

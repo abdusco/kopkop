@@ -393,8 +393,8 @@ File helpers read within the site root; generated files stay within the output r
 | `load_data(path, format=...)` | Load a file relative to the site root. JSON, TOML, YAML, and CSV files are parsed into structured data; everything else is returned as a plain string. The optional `format` kwarg (`"json"`, `"toml"`, `"yaml"`, `"csv"`, `"plain"`) overrides extension-based detection. CSV files return `{headers, records}`. |
 | `load_url(url=..., format=..., method="GET", headers=[...], body=...)` | Fetch a URL and return parsed data. Format precedence is explicit `format`, recognized `Content-Type`, then URL extension. `headers` is a list of `"Key: Value"` strings. `body` sends a request body (useful with `method="POST"`). Responses are cached per method, URL, body, and headers for the build; identical concurrent calls share one request, and failed fetches can be retried. Timeout defaults to 30s; override with `LOAD_URL_TIMEOUT` (e.g. `"10s"`). |
 | `get_hash(path, base64=false)` | SHA-384 hash of a file or string. |
-| `get_image_metadata(path)` | Returns `{width, height, format}` for an image. |
-| `resize_image(path, width, height)` | Resize an image and return its URL. |
+| `get_image_metadata(path=...)` | Returns `{width, height, format}` for an image. |
+| `resize_image(path=..., width=..., height=..., op="fill")` | Resize an image and return `{url, width, height, static_path}`. `op` is `scale` (stretch to exactly width x height), `fit_width`, `fit_height`, `fit` (fit inside the box, keeping the aspect ratio) or `fill` (default: cover the box, then crop the centre). `url` includes `base_url` and its path prefix. |
 
 ### Template Filters
 
