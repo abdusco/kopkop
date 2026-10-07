@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/abdusco/kopkop/internal/config"
@@ -24,6 +25,8 @@ func TestCacheExpirationAndRefresh(t *testing.T) {
 	}{
 		{name: "fresh success reused", age: time.Minute, initialStatus: 200, wantHits: 1},
 		{name: "expired success checked", age: 2 * time.Hour, initialStatus: 200, wantHits: 2},
+		{name: "one tick before TTL reused", age: time.Hour - time.Nanosecond, initialStatus: 200, wantHits: 1},
+		{name: "exactly TTL checked", age: time.Hour, initialStatus: 200, wantHits: 2},
 		{name: "future timestamp checked", age: -time.Hour, initialStatus: 200, wantHits: 2},
 		{name: "failures retried", age: time.Minute, initialStatus: 503, wantHits: 2},
 		{name: "forced refresh", age: time.Minute, initialStatus: 200, refresh: true, wantHits: 2},
@@ -32,48 +35,51 @@ func TestCacheExpirationAndRefresh(t *testing.T) {
 		{name: "anchor policy changed", age: time.Minute, initialStatus: 200, changePolicy: true, wantHits: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var hits atomic.Int32
-			status := tc.initialStatus
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if hits.Add(1) == 1 {
-					w.WriteHeader(status)
-				} else {
-					w.WriteHeader(http.StatusNotFound)
+			// The bubble's clock stands still while the test runs, so entry ages are exact.
+			synctest.Test(t, func(t *testing.T) {
+				var hits atomic.Int32
+				status := tc.initialStatus
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if hits.Add(1) == 1 {
+						w.WriteHeader(status)
+					} else {
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+				defer ts.Close()
+				lib := content.NewLibrary()
+				lib.Pages["page.md"] = &content.Page{ExternalLinks: []string{ts.URL}}
+				cfg := config.LinkChecker{TimeoutSeconds: 2, UseCache: true, CacheFile: filepath.Join(t.TempDir(), "cache.json"), CacheTTLSeconds: 3600}
+				first, err := CheckExternalLinks(lib, cfg)
+				require.NoError(t, err)
+				require.Len(t, first, 1)
+				cache, err := loadCache(cfg.CacheFile)
+				require.NoError(t, err)
+				entry := cache[ts.URL]
+				entry.CheckedAt = time.Now().Add(-tc.age)
+				if tc.legacy {
+					entry.CheckedAt = time.Time{}
+					entry.Policy = ""
 				}
-			}))
-			defer ts.Close()
-			lib := content.NewLibrary()
-			lib.Pages["page.md"] = &content.Page{ExternalLinks: []string{ts.URL}}
-			cfg := config.LinkChecker{TimeoutSeconds: 2, UseCache: true, CacheFile: filepath.Join(t.TempDir(), "cache.json"), CacheTTLSeconds: 3600}
-			first, err := CheckExternalLinks(lib, cfg)
-			require.NoError(t, err)
-			require.Len(t, first, 1)
-			cache, err := loadCache(cfg.CacheFile)
-			require.NoError(t, err)
-			entry := cache[ts.URL]
-			entry.CheckedAt = time.Now().Add(-tc.age)
-			if tc.legacy {
-				entry.CheckedAt = time.Time{}
-				entry.Policy = ""
-			}
-			cache[ts.URL] = entry
-			require.NoError(t, saveCache(cfg.CacheFile, cache))
-			cfg.Refresh = tc.refresh
-			if tc.zeroTTL {
-				cfg.CacheTTLSeconds = 0
-			}
-			if tc.changePolicy {
-				cfg.SkipAnchorPrefixes = []string{ts.URL}
-			}
-			second, err := CheckExternalLinks(lib, cfg)
-			require.NoError(t, err)
-			require.Equal(t, tc.wantHits, hits.Load())
-			if tc.wantHits == 1 {
-				require.True(t, second[0].OK)
-			} else {
-				require.False(t, second[0].OK)
-				require.Equal(t, http.StatusNotFound, second[0].Status)
-			}
+				cache[ts.URL] = entry
+				require.NoError(t, saveCache(cfg.CacheFile, cache))
+				cfg.Refresh = tc.refresh
+				if tc.zeroTTL {
+					cfg.CacheTTLSeconds = 0
+				}
+				if tc.changePolicy {
+					cfg.SkipAnchorPrefixes = []string{ts.URL}
+				}
+				second, err := CheckExternalLinks(lib, cfg)
+				require.NoError(t, err)
+				require.Equal(t, tc.wantHits, hits.Load())
+				if tc.wantHits == 1 {
+					require.True(t, second[0].OK)
+				} else {
+					require.False(t, second[0].OK)
+					require.Equal(t, http.StatusNotFound, second[0].Status)
+				}
+			})
 		})
 	}
 }

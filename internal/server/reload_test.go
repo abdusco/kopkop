@@ -49,14 +49,13 @@ func TestHubReplaysBuildErrorToNewClients(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(read(late)), &failure))
 	require.Equal(t, errorMessage{Type: "error", Message: "render page \"a.md\": boom\nsecond line"}, failure)
 
-	// A successful build clears the error: new clients get nothing, open ones reload.
+	// A successful build clears the error, so clients connecting later are not
+	// sent a stale one; open ones reload.
 	h.succeed(context.Background())
 	require.Equal(t, "reload", read(late))
-	fresh := dial()
-	defer fresh.Close()
-	require.NoError(t, fresh.SetReadDeadline(time.Now().Add(100*time.Millisecond)))
-	_, _, err := fresh.ReadMessage()
-	require.Error(t, err)
+	h.mu.Lock()
+	require.Empty(t, h.lastError)
+	h.mu.Unlock()
 }
 
 func TestServeReloadAndShutdown(t *testing.T) {

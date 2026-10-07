@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"testing"
 	"testing/fstest"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -157,6 +158,23 @@ func TestMemoryFSDirectoryHandleReads(t *testing.T) {
 			require.Empty(t, entries)
 		})
 	}
+}
+
+func TestMemoryFSModTimeTracksWrites(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := NewMemoryFS()
+		created := time.Now()
+		require.NoError(t, m.WriteFile("a.txt", []byte("one"), 0o644))
+		info, err := m.Stat("a.txt")
+		require.NoError(t, err)
+		require.Equal(t, created, info.ModTime())
+
+		time.Sleep(time.Hour) // advances the bubble's clock instantly
+		require.NoError(t, m.WriteFile("a.txt", []byte("two"), 0o644))
+		info, err = m.Stat("a.txt")
+		require.NoError(t, err)
+		require.Equal(t, created.Add(time.Hour), info.ModTime())
+	})
 }
 
 func TestMemoryFSMetadataAndSnapshots(t *testing.T) {
