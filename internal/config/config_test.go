@@ -69,6 +69,38 @@ highlight_theme = "catppuccin-macchiato"
 	assert.Equal(t, "catppuccin-macchiato", cfg.Markdown.HighlightTheme)
 }
 
+func TestFromFile_ExternalLinksTargetBlankValues(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		value   string
+		want    bool
+		wantErr string
+	}{
+		{name: "bool true", value: "true", want: true},
+		{name: "bool false", value: "false", want: false},
+		{name: "string yes", value: `"yes"`, want: true},
+		{name: "string off", value: `"off"`, want: false},
+		{name: "garbage string", value: `"garbage"`, wantErr: `"garbage" is not a boolean`},
+		{name: "wrong type", value: "3", wantErr: "unsupported type"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			configPath := filepath.Join(t.TempDir(), "zola.toml")
+			require.NoError(t, os.WriteFile(configPath, []byte("base_url = \"https://example.com\"\n[markdown]\nexternal_links_target_blank = "+tc.value+"\n"), 0o644))
+
+			cfg, err := FromFile(configPath)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Markdown.ExternalLinksTargetBlank)
+		})
+	}
+}
+
 func TestFromFile_MarkdownHighlightSpellings(t *testing.T) {
 	t.Parallel()
 

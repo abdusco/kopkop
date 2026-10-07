@@ -193,6 +193,7 @@ external_links_target_blank = false
 highlight_theme = "github"
 
 [search]
+# Same switch as top-level build_search_index; either one being true builds the index.
 build_index = false
 index_path = "search_index.json"
 

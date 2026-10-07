@@ -83,8 +83,14 @@ func (m *Markdown) UnmarshalTOML(v any) error {
 		case bool:
 			m.ExternalLinksTargetBlank = val
 		case string:
-			s := strings.ToLower(strings.TrimSpace(val))
-			m.ExternalLinksTargetBlank = s == "true" || s == "1" || s == "yes" || s == "on"
+			switch strings.ToLower(strings.TrimSpace(val)) {
+			case "true", "1", "yes", "on":
+				m.ExternalLinksTargetBlank = true
+			case "false", "0", "no", "off", "":
+				m.ExternalLinksTargetBlank = false
+			default:
+				return fmt.Errorf("markdown.external_links_target_blank: %q is not a boolean", val)
+			}
 		default:
 			return fmt.Errorf("markdown.external_links_target_blank has unsupported type %T", raw)
 		}
