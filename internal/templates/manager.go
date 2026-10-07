@@ -35,6 +35,8 @@ import (
 )
 
 var namedEndTagRe = regexp.MustCompile(`\{%(\s*end(?:macro|block))\s+[a-zA-Z0-9_]+\s*%\}`)
+var templateTagRe = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
+var stringLiteralRe = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'`)
 var teraMacroCallRe = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)::([a-zA-Z_][a-zA-Z0-9_]*)\(`)
 
 type urlCacheEntry struct {
@@ -298,11 +300,22 @@ func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
 	})
 }
 
+// normalizeTemplateSyntax rewrites Tera-only syntax inside template tags. Text
+// outside `{{ }}` and `{% %}` and string literals inside them stay untouched.
 func normalizeTemplateSyntax(in string) string {
-	// Tera allows named end tags like `{% endmacro name %}`; MiniJinja expects `{% endmacro %}`.
-	out := namedEndTagRe.ReplaceAllString(in, `{%$1 %}`)
-	out = teraMacroCallRe.ReplaceAllString(out, `${1}.${2}(`)
-	return out
+	return templateTagRe.ReplaceAllStringFunc(in, func(tag string) string {
+		// Tera allows named end tags like `{% endmacro name %}`; MiniJinja expects `{% endmacro %}`.
+		tag = namedEndTagRe.ReplaceAllString(tag, `{%$1 %}`)
+		var out strings.Builder
+		last := 0
+		for _, loc := range stringLiteralRe.FindAllStringIndex(tag, -1) {
+			out.WriteString(teraMacroCallRe.ReplaceAllString(tag[last:loc[0]], `${1}.${2}(`))
+			out.WriteString(tag[loc[0]:loc[1]])
+			last = loc[1]
+		}
+		out.WriteString(teraMacroCallRe.ReplaceAllString(tag[last:], `${1}.${2}(`))
+		return out.String()
+	})
 }
 
 func (m *Manager) Render(name string, data map[string]any) (string, error) {

@@ -321,3 +321,19 @@ func newMemoryFS(files map[string][]byte) *filesystem.MemoryFS {
 	}
 	return m
 }
+
+func TestNormalizeTemplateSyntax(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, in, want string }{
+		{"macro call in expression", `{{ macros::input(name="a") }}`, `{{ macros.input(name="a") }}`},
+		{"macro call in tag", `{% set x = m::f(1) %}`, `{% set x = m.f(1) %}`},
+		{"named end tag", `{% endmacro input %}`, `{% endmacro %}`},
+		{"prose untouched", `<p>Vec::new( and std::string(x)</p>`, `<p>Vec::new( and std::string(x)</p>`},
+		{"string literal untouched", `{{ "a::b(" }} {{ m::f() }}`, `{{ "a::b(" }} {{ m.f() }}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, normalizeTemplateSyntax(tc.in))
+		})
+	}
+}
