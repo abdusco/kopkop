@@ -1,6 +1,9 @@
 package content
 
-import "time"
+import (
+	"path/filepath"
+	"time"
+)
 
 type PageFrontMatter struct {
 	Title             string              `toml:"title" yaml:"title"`
@@ -59,6 +62,16 @@ type Page struct {
 	Date          *time.Time
 	Updated       *time.Time
 	ParentSection string
+}
+
+// AssetRelPath returns asset's slash-separated path relative to the page's
+// directory, which is also its location below the page's output directory.
+func (p *Page) AssetRelPath(asset string) string {
+	rel, err := filepath.Rel(filepath.Dir(p.SourcePath), asset)
+	if err != nil {
+		return filepath.Base(asset)
+	}
+	return filepath.ToSlash(rel)
 }
 
 type Section struct {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -206,18 +207,62 @@ func shouldIgnoreContent(rel string, patterns []string) bool {
 		return true
 	}
 	for _, p := range patterns {
-		p = filepath.ToSlash(p)
-		if match, _ := filepath.Match(p, rel); match {
+		if re := compileGlob(filepath.ToSlash(p)); re != nil && re.MatchString(rel) {
 			return true
-		}
-		if strings.HasPrefix(p, "**/") {
-			trim := strings.TrimPrefix(p, "**/")
-			if match, _ := filepath.Match(trim, base); match {
-				return true
-			}
 		}
 	}
 	return false
+}
+
+// compileGlob translates a globset-style pattern, where "*" and "**" also
+// match "/", into an anchored regular expression. It returns nil for patterns
+// that are not valid globs.
+func compileGlob(pattern string) *regexp.Regexp {
+	var b strings.Builder
+	b.WriteString("^")
+	inGroup := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch c {
+		case '*':
+			stars := 1
+			for i+1 < len(pattern) && pattern[i+1] == '*' {
+				i++
+				stars++
+			}
+			// "**/" also matches zero directories.
+			if stars > 1 && i+1 < len(pattern) && pattern[i+1] == '/' {
+				b.WriteString("(?:.*/)?")
+				i++
+			} else {
+				b.WriteString(".*")
+			}
+		case '?':
+			b.WriteString(".")
+		case '[', ']':
+			b.WriteByte(c)
+		case '{':
+			inGroup = true
+			b.WriteString("(?:")
+		case '}':
+			inGroup = false
+			b.WriteString(")")
+		case ',':
+			if inGroup {
+				b.WriteString("|")
+			} else {
+				b.WriteString(",")
+			}
+		default:
+			b.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return nil
+	}
+	return re
 }
 
 func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, error) {
@@ -251,7 +296,8 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 			}
 		}
 	}
-	hasColocated, _ := hasColocatedAssets(absPath)
+	assets, _ := findColocatedAssets(absPath, relPath, cfg.IgnoredContent)
+	hasColocated := len(assets) > 0
 	if baseName == "index" {
 		if strings.TrimSpace(meta.Slug) == "" {
 			pageSlug = ""
@@ -291,7 +337,6 @@ func parsePage(absPath, relPath, content string, cfg config.Config) (*Page, erro
 		return nil, metadataError(relPath, content, "updated", "must be a valid YYYY-MM-DD date or RFC3339 timestamp")
 	}
 
-	assets, _ := findColocatedAssets(absPath)
 	page.Assets = assets
 
 	return page, nil
@@ -302,14 +347,6 @@ func metadataError(relPath, content, field, message string) error {
 		return fmt.Errorf("%s:%d: invalid %s: %s", relPath, line, field, message)
 	}
 	return fmt.Errorf("%s: invalid %s: %s", relPath, field, message)
-}
-
-func hasColocatedAssets(pageAbsPath string) (bool, error) {
-	assets, err := findColocatedAssets(pageAbsPath)
-	if err != nil {
-		return false, err
-	}
-	return len(assets) > 0, nil
 }
 
 func parseSection(absPath, relPath, content string, cfg config.Config) (*Section, error) {
@@ -613,29 +650,63 @@ func parentSectionPath(rel string) string {
 	return fmt.Sprintf("%s/_index.md", dir)
 }
 
-func findColocatedAssets(pageAbsPath string) ([]string, error) {
+// findColocatedAssets lists the non-Markdown files in a bundle's directory tree.
+// Hidden files, files matching ignored_content, and subdirectories that hold
+// their own pages or sections are skipped.
+func findColocatedAssets(pageAbsPath, relPath string, ignored []string) ([]string, error) {
 	name := strings.TrimSuffix(filepath.Base(pageAbsPath), filepath.Ext(pageAbsPath))
 	if name != "index" && !strings.HasPrefix(name, "index.") {
 		return []string{}, nil
 	}
 	dir := filepath.Dir(pageAbsPath)
-	ent, err := os.ReadDir(dir)
+	// Paths for ignored_content are relative to content/.
+	contentDir := dir
+	if relDir := filepath.ToSlash(filepath.Dir(relPath)); relDir != "." {
+		for range strings.Split(relDir, "/") {
+			contentDir = filepath.Dir(contentDir)
+		}
+	}
+	out := []string{}
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != dir && (strings.HasPrefix(d.Name(), ".") || holdsContent(path)) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(contentDir, path)
+		if err != nil || shouldIgnoreContent(filepath.ToSlash(rel), ignored) {
+			return nil
+		}
+		out = append(out, path)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := []string{}
-	for _, e := range ent {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if strings.HasSuffix(name, ".md") {
-			continue
-		}
-		out = append(out, filepath.Join(dir, name))
-	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// holdsContent reports whether dir is a section or a page bundle of its own.
+func holdsContent(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() && strings.HasSuffix(name, ".md") && (strings.HasPrefix(name, "_index.") || strings.HasPrefix(name, "index.")) {
+			return true
+		}
+	}
+	return false
 }
 
 func parsePageFrontMatterOptional(relPath string, contentStr string) (PageFrontMatter, string, error) {

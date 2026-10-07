@@ -86,6 +86,32 @@ func TestLoadLibrary_SortByWeightPutsUnweightedLast(t *testing.T) {
 	assert.Equal(t, []string{"blog/d.md", "blog/c.md", "blog/b.md", "blog/a.md"}, lib.Sections["blog/_index.md"].Pages)
 }
 
+func TestShouldIgnoreContent(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		rel      string
+		patterns []string
+		want     bool
+	}{
+		{"no patterns", "a/b.md", nil, false},
+		{"hidden file", "a/.b.md", nil, true},
+		{"star crosses directories", "a/b/c.psd", []string{"*.psd"}, true},
+		{"star with directory", "posts/ignored.md", []string{"*/ignored.md"}, true},
+		{"double star prefix", "x/y/z.md", []string{"**/z.md"}, true},
+		{"double star prefix matches root", "z.md", []string{"**/z.md"}, true},
+		{"double star suffix", "drafts/a/b.md", []string{"drafts/**"}, true},
+		{"alternation", "a.tmp", []string{"*.{tmp,bak}"}, true},
+		{"no match", "a/b.md", []string{"*.psd", "c/*"}, false},
+		{"dot is literal", "axpsd", []string{"*.psd"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, shouldIgnoreContent(tc.rel, tc.patterns))
+		})
+	}
+}
+
 func TestLoadLibrary_SkipsDraftsByDefault(t *testing.T) {
 	t.Parallel()
 

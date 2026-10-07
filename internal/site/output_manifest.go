@@ -40,7 +40,7 @@ func (s *Site) validateOutputManifest() error {
 			if err != nil {
 				return err
 			}
-			add(filepath.Join(strings.TrimPrefix(pg.Path, "/"), filepath.Base(asset)), "asset "+filepath.ToSlash(source))
+			add(filepath.Join(strings.TrimPrefix(pg.Path, "/"), pg.AssetRelPath(asset)), "asset "+filepath.ToSlash(source))
 		}
 	}
 	for rel, sec := range s.Library.Sections {

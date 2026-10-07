@@ -425,10 +425,12 @@ func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
 		"extra":         extra,
 		"earlier":       earlier,
 		"later":         later,
-		"assets":        pg.Assets,
-		"taxonomies":    taxonomies,
-		"aliases":       pg.Meta.Aliases,
-		"draft":         pg.Meta.Draft,
+		"assets": lo.Map(pg.Assets, func(asset string, _ int) string {
+			return strings.TrimRight(pg.Permalink, "/") + "/" + pg.AssetRelPath(asset)
+		}),
+		"taxonomies": taxonomies,
+		"aliases":    pg.Meta.Aliases,
+		"draft":      pg.Meta.Draft,
 	}
 }
 
@@ -1439,7 +1441,7 @@ func (s *Site) copyStatic() error {
 func (s *Site) copyColocatedAssets() error {
 	for _, p := range s.Library.Pages {
 		for _, asset := range p.Assets {
-			relName := filepath.Base(asset)
+			relName := p.AssetRelPath(asset)
 			destDir := filepath.ToSlash(strings.TrimPrefix(p.Path, "/"))
 			assetPath, err := filepath.Rel(s.BasePath, asset)
 			if err != nil {
