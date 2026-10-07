@@ -62,6 +62,7 @@ type Site struct {
 	BuildMode    BuildMode
 	MemoryOutput *filesystem.MemoryFS
 
+	templateViews       *templateViews
 	highlightCSSPath    string
 	highlightCSSWritten bool
 }
@@ -141,6 +142,7 @@ func (s *Site) Load(includeDrafts bool) error {
 		return err
 	}
 	s.Library = lib
+	s.templateViews = nil
 	return nil
 }
 
@@ -151,6 +153,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	if opts.BuildMode < BuildDisk || opts.BuildMode > BuildBoth {
 		return fmt.Errorf("invalid build mode: %d", opts.BuildMode)
 	}
+	s.templateViews = nil
 	if err := validateOutputPath(s.BasePath, s.ConfigPath, s.OutputPath, s.Config.ExtraWatchPaths); err != nil {
 		return err
 	}
@@ -212,6 +215,7 @@ func (s *Site) Build(opts BuildOptions) error {
 	if err := s.renderAllContent(); err != nil {
 		return err
 	}
+	s.prepareTemplateViews()
 	if err := s.renderAllPages(opts.LiveReloadURL, opts.Concurrency); err != nil {
 		return err
 	}
@@ -333,9 +337,9 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 
 			tplName := s.pageTemplateFor(pg)
 			ctx := s.baseTemplateContext()
-			ctx["page"] = s.pageView(rel, pg)
-			if sec, ok := s.Library.Sections[pg.ParentSection]; ok {
-				ctx["section"] = s.sectionView(pg.ParentSection, sec, s.sectionPageEntries(sec))
+			ctx["page"] = s.templateViews.pages[rel]
+			if sec, ok := s.templateViews.sections[pg.ParentSection]; ok {
+				ctx["section"] = sec
 			}
 			ctx["current_url"] = pg.Permalink
 			ctx["current_path"] = pg.Path
@@ -364,16 +368,22 @@ func (s *Site) renderAllPages(liveReloadURL string, concurrency int) error {
 }
 
 func (s *Site) baseTemplateContext() map[string]any {
-	ctx := map[string]any{
-		"config":       s.Config.TemplateView(),
-		"__pages":      s.serializedPages(),
-		"__sections":   s.serializedSections(),
-		"__taxonomies": s.serializedTaxonomies(),
+	if s.templateViews == nil {
+		s.prepareTemplateViews()
+	}
+	ctx := make(map[string]any, len(s.templateViews.base)+4)
+	for key, val := range s.templateViews.base {
+		ctx[key] = val
 	}
 	return ctx
 }
 
 func (s *Site) pageView(rel string, pg *content.Page) map[string]any {
+	if s.templateViews != nil {
+		if view, ok := s.templateViews.rawPages[rel]; ok {
+			return view.(map[string]any)
+		}
+	}
 	earlier, later := s.pageNeighbors(rel, pg)
 	extra := pg.Meta.Extra
 	if extra == nil {
@@ -761,6 +771,11 @@ type sectionRenderPlan struct {
 }
 
 func (s *Site) sectionPageEntries(sec *content.Section) []map[string]any {
+	if s.templateViews != nil {
+		if entries, ok := s.templateViews.sectionPages[sec]; ok {
+			return entries
+		}
+	}
 	type pageEntry struct {
 		rel string
 		pg  *content.Page
@@ -1612,14 +1627,6 @@ func (s *Site) serializedPages() map[string]any {
 	out := map[string]any{}
 	for rel, pg := range s.Library.Pages {
 		out[rel] = s.pageView(rel, pg)
-	}
-	return out
-}
-
-func (s *Site) serializedSections() map[string]any {
-	out := map[string]any{}
-	for rel, sec := range s.Library.Sections {
-		out[rel] = s.sectionView(rel, sec, s.sectionPageEntries(sec))
 	}
 	return out
 }

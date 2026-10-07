@@ -1,10 +1,54 @@
 package site
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func BenchmarkLargeSiteBuild(b *testing.B) {
+	for _, count := range []int{1000, 10000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			root := b.TempDir()
+			for _, dir := range []string{"content", "templates"} {
+				if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+					b.Fatal(err)
+				}
+			}
+			for name, body := range map[string]string{
+				"zola.toml":              "base_url='https://example.com'\n[[taxonomies]]\nname='tags'\n",
+				"content/_index.md":      "+++\ntitle='Home'\nsort_by='weight'\n+++\nHome",
+				"templates/page.html":    `<h1>{{ page.title }}</h1>{{ page.content|safe }}{{ section.title }}{{ get_page(path="post-0.md").title }}{{ get_section(path="_index.md").title }}{{ get_taxonomy(kind="tags").name }}`,
+				"templates/section.html": `<h1>{{ section.title }}</h1>{% for page in section.pages %}{{ page.title }}{% endfor %}`,
+			} {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+					b.Fatal(err)
+				}
+			}
+			for i := 0; i < count; i++ {
+				body := fmt.Sprintf("+++\ntitle='Post %d'\nweight=%d\n[taxonomies]\ntags=['Go']\n+++\n**Body**", i, i)
+				if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("content/post-%d.md", i)), []byte(body), 0o644); err != nil {
+					b.Fatal(err)
+				}
+			}
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if err := s.Load(false); err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := s.Build(BuildOptions{BuildMode: BuildMemory, Concurrency: 1}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
 
 func BenchmarkSiteBuild(b *testing.B) {
 	root := b.TempDir()
