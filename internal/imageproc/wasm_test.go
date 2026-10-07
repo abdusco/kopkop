@@ -2,14 +2,41 @@ package imageproc
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
 	"testing"
 
+	"github.com/abdusco/kopkop/internal/filesystem"
+	"github.com/abdusco/vips-wasm/govips"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProcessWebPSource(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 200, 100))
+	var pngBytes bytes.Buffer
+	require.NoError(t, png.Encode(&pngBytes, src))
+	webpBytes, err := govips.Resize(context.Background(), pngBytes.Bytes(), govips.ResizeOptions{Width: 200, Format: govips.FormatWebP})
+	require.NoError(t, err)
+
+	fsys := filesystem.NewMemoryFS()
+	require.NoError(t, fsys.WriteFile("a.webp", webpBytes, 0o644))
+	p := New(fsys, fsys)
+	p.backends = []resizeBackend{{name: "wasm", run: resizeWithWasm}} // no CLI tools, no Go fallback
+
+	res, err := p.Process("a.webp", OpFitWidth, 100, 0)
+	require.NoError(t, err)
+	require.Equal(t, 100, res.Width)
+	require.Equal(t, 50, res.Height)
+	out, err := fsys.ReadFile(res.StaticPath)
+	require.NoError(t, err)
+	conf, format, err := image.DecodeConfig(bytes.NewReader(out))
+	require.NoError(t, err)
+	require.Equal(t, "webp", format)
+	require.Equal(t, 100, conf.Width)
+}
 
 func TestResizeWithWasm(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 200, 100))
@@ -21,6 +48,9 @@ func TestResizeWithWasm(t *testing.T) {
 	var pngBytes, jpgBytes bytes.Buffer
 	require.NoError(t, png.Encode(&pngBytes, source))
 	require.NoError(t, jpeg.Encode(&jpgBytes, source, nil))
+
+	webpBytes, err := govips.Resize(context.Background(), pngBytes.Bytes(), govips.ResizeOptions{Width: 200, Format: govips.FormatWebP})
+	require.NoError(t, err)
 
 	for _, tc := range []struct {
 		name    string
@@ -34,6 +64,8 @@ func TestResizeWithWasm(t *testing.T) {
 		{name: "jpeg same aspect", input: jpgBytes.Bytes(), ext: ".jpg", w: 40, h: 20},
 		{name: "png crop to square", input: pngBytes.Bytes(), ext: ".png", w: 50, h: 50, crop: true},
 		{name: "jpeg crop to tall", input: jpgBytes.Bytes(), ext: ".jpg", w: 30, h: 60, crop: true},
+		{name: "webp same aspect", input: webpBytes, ext: ".webp", w: 100, h: 50},
+		{name: "webp crop", input: webpBytes, ext: ".webp", w: 50, h: 50, crop: true},
 		{name: "stretch", input: pngBytes.Bytes(), ext: ".png", w: 50, h: 50},
 		{name: "upscale", input: pngBytes.Bytes(), ext: ".png", w: 400, h: 200},
 		{name: "upscale crop", input: pngBytes.Bytes(), ext: ".png", w: 400, h: 400, crop: true},

@@ -19,6 +19,7 @@ import (
 
 	"github.com/abdusco/kopkop/internal/filesystem"
 	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp" // registers the WebP decoder for image.Decode*
 )
 
 type Metadata struct {
