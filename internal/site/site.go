@@ -554,6 +554,7 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 		ExternalLinksTargetBlank:  s.Config.Markdown.ExternalLinksTargetBlank,
 		HighlightTheme:            s.Config.Markdown.HighlightTheme,
 		AllowMissingInternalLinks: s.Config.LinkChecker.InternalLevel == config.LinkCheckerWarn,
+		RelativeLinks:             s.Config.LinkStrategy == "relative",
 	})
 	if err != nil {
 		return markdown.Rendered{}, err
@@ -776,6 +777,9 @@ func (s *Site) redirectTargetURL(target string) string {
 }
 
 func (s *Site) renderRedirect(url string) (string, error) {
+	if s.Config.LinkStrategy == "relative" {
+		url = markdown.RootRelative(url)
+	}
 	return s.Templates.Render("__zola_builtins/internal/alias.html", map[string]any{"url": url})
 }
 

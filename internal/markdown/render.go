@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	stdhtml "html"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -50,6 +51,24 @@ type RenderContext struct {
 	ExternalLinksTargetBlank  bool
 	HighlightTheme            string
 	AllowMissingInternalLinks bool
+	// RelativeLinks makes resolved internal links and colocated asset links
+	// root-relative ("/posts/a/") instead of absolute permalinks, so the
+	// output keeps working behind a proxy with a different host.
+	RelativeLinks bool
+}
+
+// RootRelative strips the scheme and host from an absolute http(s) link,
+// keeping the path, query and fragment. Other links are returned unchanged.
+func RootRelative(link string) string {
+	u, err := url.Parse(link)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return link
+	}
+	u.Scheme, u.Host, u.User = "", "", nil
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return u.String()
 }
 
 func RenderContent(content string, ctx RenderContext) (Rendered, error) {
@@ -365,6 +384,9 @@ func resolveInternalLink(link string, ctx RenderContext) (resolved string, err e
 	if hash != nil {
 		full = permalink + "#" + *hash
 	}
+	if ctx.RelativeLinks {
+		full = RootRelative(full)
+	}
 	return full, nil
 }
 
@@ -373,7 +395,11 @@ func resolveColocatedAssetLink(link string, ctx RenderContext) string {
 	if base == "" {
 		return link
 	}
-	return base + "/" + link
+	resolved := base + "/" + link
+	if ctx.RelativeLinks {
+		resolved = RootRelative(resolved)
+	}
+	return resolved
 }
 
 func isExternalLink(link string) bool {
