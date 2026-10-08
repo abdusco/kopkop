@@ -93,7 +93,7 @@ func (p *Processor) GetMetadataReader(r io.Reader) (Metadata, error) {
 	return Metadata{Width: conf.Width, Height: conf.Height, Format: format}, nil
 }
 
-// Resize operations, matching Zola's resize_image.
+// Resize operations used by the resize_image template function.
 const (
 	OpScale     = "scale"      // exactly width x height, ignoring the aspect ratio
 	OpFitWidth  = "fit_width"  // resize to width, height follows the aspect ratio

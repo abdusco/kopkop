@@ -34,7 +34,7 @@ func TestBuildTemplateFailures(t *testing.T) {
 			for _, mode := range []BuildMode{BuildDisk, BuildMemory, BuildBoth} {
 				root := t.TempDir()
 				require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
-				cfg := filepath.Join(root, "zola.toml")
+				cfg := filepath.Join(root, "config.toml")
 				require.NoError(t, os.WriteFile(cfg, []byte("base_url='https://example.com'\n"), 0o644))
 				for name, body := range tc.files {
 					p := filepath.Join(root, filepath.FromSlash(name))
@@ -81,7 +81,7 @@ func TestAuxiliaryTemplateFailures(t *testing.T) {
 			t.Parallel()
 			for _, mode := range []BuildMode{BuildDisk, BuildMemory, BuildBoth} {
 				root := t.TempDir()
-				cfg := filepath.Join(root, "zola.toml")
+				cfg := filepath.Join(root, "config.toml")
 				require.NoError(t, os.WriteFile(cfg, []byte("base_url='https://example.com'\ngenerate_robots_txt=true\ntaxonomies=[{name='tags'}]\n"), 0o644))
 				files := map[string]string{
 					"content/post.md":        "+++\ntitle='Post'\ntaxonomies={tags=['Example']}\n+++\nBody",
@@ -100,7 +100,7 @@ func TestAuxiliaryTemplateFailures(t *testing.T) {
 				s, err := New(SiteParams{BasePath: root, ConfigPath: cfg})
 				require.NoError(t, err)
 				if tc.breakRedirect {
-					require.NoError(t, s.Templates.Engine.AddTemplate("__zola_builtins/internal/alias.html", "{{ broken() }}"))
+					require.NoError(t, s.Templates.Engine.AddTemplate("__kopkop_builtins/internal/alias.html", "{{ broken() }}"))
 				}
 				err = s.Build(BuildOptions{BuildMode: mode})
 				if len(tc.want) == 0 {
@@ -164,7 +164,7 @@ func TestPageTemplateErrorsAreDeterministic(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	cfg := filepath.Join(root, "zola.toml")
+	cfg := filepath.Join(root, "config.toml")
 	require.NoError(t, os.WriteFile(cfg, []byte("base_url='https://example.com'\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("{{ broken() }}"), 0o644))
 	for _, name := range []string{"a.md", "b.md", "c.md"} {

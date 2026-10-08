@@ -13,7 +13,7 @@ func TestColocatedAssetsAreCopiedRecursively(t *testing.T) {
 
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"zola.toml":                         "base_url = \"https://example.com\"\nignored_content = [\"*.psd\"]\n",
+		"config.toml":                         "base_url = \"https://example.com\"\nignored_content = [\"*.psd\"]\n",
 		"content/post/index.md":             "+++\ntitle = 'Post'\n+++\n",
 		"content/post/cover.png":            "cover",
 		"content/post/images/deep/a.png":    "deep",
@@ -31,7 +31,7 @@ func TestColocatedAssetsAreCopiedRecursively(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 	}
 
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))

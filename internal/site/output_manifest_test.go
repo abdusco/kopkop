@@ -123,7 +123,7 @@ func TestBuildRejectsOutputCollisionsBeforeRendering(t *testing.T) {
 					root := t.TempDir()
 					require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
 					files := map[string]string{
-						"zola.toml":              "base_url='https://example.com'\ngenerate_sitemap=true\ngenerate_robots_txt=true\n" + tc.config,
+						"config.toml":              "base_url='https://example.com'\ngenerate_sitemap=true\ngenerate_robots_txt=true\n" + tc.config,
 						"templates/page.html":    `{% include "missing-page.html" %}`,
 						"templates/section.html": `{% include "missing-section.html" %}`,
 						"public/sentinel":        "previous output",
@@ -135,7 +135,7 @@ func TestBuildRejectsOutputCollisionsBeforeRendering(t *testing.T) {
 						require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 						require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 					}
-					s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+					s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 					require.NoError(t, err)
 					var first string
 					for i := 0; i < 3; i++ {
@@ -168,7 +168,7 @@ func TestOutputManifestAllowsDistinctOutputsAndSiteStaticOverrides(t *testing.T)
 		t.Run(fmt.Sprint(mode), func(t *testing.T) {
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":                           "base_url='https://example.com'\ntheme='demo'\ngenerate_feeds=true\n",
+				"config.toml":                           "base_url='https://example.com'\ntheme='demo'\ngenerate_feeds=true\n",
 				"themes/demo/theme.toml":              "name='Demo'",
 				"themes/demo/static/assets/style.css": "Theme stylesheet",
 				"themes/demo/static/assets/theme.css": "Theme only",
@@ -183,7 +183,7 @@ func TestOutputManifestAllowsDistinctOutputsAndSiteStaticOverrides(t *testing.T)
 				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			require.NoError(t, s.Build(BuildOptions{BuildMode: mode}))
 			body, err := s.OutputFS.ReadFile("assets/style.css")

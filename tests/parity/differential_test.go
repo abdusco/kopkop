@@ -16,37 +16,34 @@ type knownDiff struct {
 	Pattern string `yaml:"pattern"`
 }
 
-func TestGoVsZolaDifferential_Optional(t *testing.T) {
+func TestGoVsReferenceDifferential_Optional(t *testing.T) {
 	t.Parallel()
 
 	if os.Getenv("PARITY_RUN_DIFF") != "1" {
 		t.Skip("set PARITY_RUN_DIFF=1 to run differential parity tests")
 	}
-	zolaBin := os.Getenv("PARITY_ZOLA_BIN")
-	if zolaBin == "" {
-		t.Skip("set PARITY_ZOLA_BIN to zola binary path")
+	referenceBin := os.Getenv("PARITY_REFERENCE_BIN")
+	if referenceBin == "" {
+		t.Skip("set PARITY_REFERENCE_BIN to reference binary path")
 	}
 
 	fixtures := []string{"test_site", "test_site_i18n"}
 	for _, fixture := range fixtures {
 		fixture := fixture
 		t.Run(fixture, func(t *testing.T) {
-			root := filepath.Join("..", "fixtures", "zola", fixture)
-			cfgName := "zola.toml"
-			if _, err := os.Stat(filepath.Join(root, cfgName)); err != nil {
-				cfgName = "config.toml"
-			}
+			root := filepath.Join("..", "fixtures", "reference", fixture)
+			cfgName := "config.toml"
 
 			goOut := filepath.Join(t.TempDir(), "go-public")
-			zolaOut := filepath.Join(t.TempDir(), "zola-public")
+			referenceOut := filepath.Join(t.TempDir(), "reference-public")
 
 			require.NoError(t, harness.BuildWithKopkop(root, filepath.Join(root, cfgName), goOut, false))
-			require.NoError(t, harness.BuildWithZola(zolaBin, root, cfgName, zolaOut, false))
+			require.NoError(t, harness.BuildWithReference(referenceBin, root, cfgName, referenceOut, false))
 
 			ignore, err := loadKnownDiffIgnore(filepath.Join("known_diffs.yaml"), fixture)
 			require.NoError(t, err)
 
-			diffs, err := harness.CompareDirectories(goOut, zolaOut, ignore)
+			diffs, err := harness.CompareDirectories(goOut, referenceOut, ignore)
 			require.NoError(t, err)
 			require.Empty(t, diffs)
 		})

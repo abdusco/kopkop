@@ -23,7 +23,7 @@ func TestPageNeighbors(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			files := map[string]string{
-				"zola.toml":              "base_url = \"https://example.com\"\n",
+				"config.toml":              "base_url = \"https://example.com\"\n",
 				"content/blog/_index.md": "+++\nsort_by = '" + tc.sortBy + "'\n+++\n",
 				"content/blog/a.md":      "+++\ntitle = 'A'\ndate = 2024-01-01\nweight = 1\n+++\n",
 				"content/blog/b.md":      "+++\ntitle = 'B'\ndate = 2024-02-01\nweight = 2\n+++\n",
@@ -35,7 +35,7 @@ func TestPageNeighbors(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			require.NoError(t, s.Load(false))
 			require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))

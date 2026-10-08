@@ -13,7 +13,7 @@ func TestTemplatesSeeCompleteRenderedGraph(t *testing.T) {
 		t.Run(map[BuildMode]string{BuildDisk: "disk", BuildMemory: "memory", BuildBoth: "both"}[mode], func(t *testing.T) {
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":              "base_url='https://example.com'",
+				"config.toml":              "base_url='https://example.com'",
 				"content/a/_index.md":    "+++\ntitle='A'\n+++\n**Section A**",
 				"content/z/_index.md":    "+++\ntitle='Z'\nrender=false\n+++\n**Section Z**",
 				"content/post.md":        "+++\ntitle='Post'\n+++\n**Page Post**",
@@ -24,7 +24,7 @@ func TestTemplatesSeeCompleteRenderedGraph(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			for i := 0; i < 2; i++ {
 				require.NoError(t, s.Build(BuildOptions{BuildMode: mode}))

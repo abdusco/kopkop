@@ -83,7 +83,7 @@ func runInit(args []string) error {
 	}
 	root := name
 	files := []struct{ path, body string }{
-		{"zola.toml", `base_url = "http://127.0.0.1:1111"
+		{"config.toml", `base_url = "http://127.0.0.1:1111"
 title = "My Site"
 description = ""
 output_dir = "public"

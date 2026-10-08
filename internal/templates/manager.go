@@ -374,7 +374,7 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 			defs[scName] = ShortcodeDefinition{Name: scName, FileType: fileType, Template: name}
 			continue
 		}
-		if rest, ok := strings.CutPrefix(name, "__zola_builtins/shortcodes/"); ok {
+		if rest, ok := strings.CutPrefix(name, "__kopkop_builtins/shortcodes/"); ok {
 			scName := strings.TrimSuffix(rest, filepath.Ext(rest))
 			if _, exists := defs[scName]; exists {
 				continue
@@ -720,7 +720,7 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 	})
 
 	env.AddFunction("resize_image", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
-		// Accepts Zola's keywords (path, width, height, op) as well as positional path, width, height.
+		// Accepts kopkop's keywords (path, width, height, op) as well as positional path, width, height.
 		p, err := firstPathArg(args, kwargs)
 		if err != nil {
 			return value.Undefined(), fmt.Errorf("resize_image: %w", err)

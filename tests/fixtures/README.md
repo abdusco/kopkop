@@ -1,11 +1,11 @@
-# Vendored Zola Fixtures
+# Vendored Reference Fixtures
 
-These fixtures are vendored test inputs used to validate compatibility while
-porting Zola behavior to Go.
+These fixtures are reference inputs used to validate behavior while building
+the Go implementation.
 
 Current source references:
 
-- Front matter examples adapted from Zola's front matter split tests in
+- Front matter examples adapted from upstream front matter split tests in
   `components/content/src/front_matter/split.rs`.
 
 Keep fixtures deterministic and avoid editing existing files unless behavior

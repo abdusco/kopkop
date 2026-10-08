@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// strftime formats t using chrono/strftime-style directives, as used by Zola's
+// strftime formats t using chrono/strftime-style directives, as used by the
 // date filter. Literal text is copied verbatim; unknown directives are kept as-is.
 // A "-" flag after "%" removes padding (for example "%-d").
 func strftime(t time.Time, format string) string {

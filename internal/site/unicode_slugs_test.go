@@ -18,7 +18,7 @@ func TestUnicodeSlugCollisionsBeforeRendering(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":           "base_url='https://example.com'\n" + tc.config,
+				"config.toml":           "base_url='https://example.com'\n" + tc.config,
 				"content/a.md":        tc.pageA,
 				"content/b.md":        tc.pageB,
 				"templates/page.html": "{{ missing() }}",
@@ -27,7 +27,7 @@ func TestUnicodeSlugCollisionsBeforeRendering(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			for range 3 {
 				err := s.Build(BuildOptions{})

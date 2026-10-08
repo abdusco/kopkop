@@ -16,7 +16,7 @@ import (
 func TestBuildModesProduceCompleteMatchingArtifacts(t *testing.T) {
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"zola.toml":                    "base_url='https://example.com'\ntheme='demo'\nbuild_search_index=true\n[markdown]\nhighlight_theme='github'\n",
+		"config.toml":                    "base_url='https://example.com'\ntheme='demo'\nbuild_search_index=true\n[markdown]\nhighlight_theme='github'\n",
 		"themes/demo/theme.toml":       "name='Demo'",
 		"themes/demo/static/theme.css": "Theme",
 		"themes/demo/static/style.css": "Theme style",
@@ -33,7 +33,7 @@ func TestBuildModesProduceCompleteMatchingArtifacts(t *testing.T) {
 	require.NoError(t, png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 2))))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "data"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "data/logo.png"), encoded.Bytes(), 0o644))
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	var expected map[string][]byte
 	for _, tc := range []struct {
@@ -111,8 +111,8 @@ func TestMemoryBuildDoesNotCreateOutputDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "static"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "static/file"), []byte("Static"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte("base_url='https://example.com'\nbuild_search_index=true"), 0o644))
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("base_url='https://example.com'\nbuild_search_index=true"), 0o644))
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	for _, mode := range []BuildMode{-1, 3} {
 		require.ErrorContains(t, s.Build(BuildOptions{BuildMode: mode}), "invalid build mode")

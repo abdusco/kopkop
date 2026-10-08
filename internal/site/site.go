@@ -792,7 +792,7 @@ func (s *Site) renderRedirect(url string) (string, error) {
 	if s.Config.LinkStrategy == "relative" {
 		url = markdown.RootRelative(url)
 	}
-	return s.Templates.Render("__zola_builtins/internal/alias.html", map[string]any{"url": url})
+	return s.Templates.Render("__kopkop_builtins/internal/alias.html", map[string]any{"url": url})
 }
 
 func (s *Site) renderFirstTemplate(candidates []string, ctx map[string]any) (string, error) {
@@ -1056,7 +1056,7 @@ func (s *Site) renderSitemap() error {
 // opposed to the built-in fallbacks.
 func (s *Site) hasUserTemplate(name string) bool {
 	resolved, err := s.Templates.Resolver.Resolve(name, s.Templates.Available)
-	return err == nil && !strings.HasPrefix(resolved, "__zola_builtins/")
+	return err == nil && !strings.HasPrefix(resolved, "__kopkop_builtins/")
 }
 
 func xmlEscape(s string) string {
@@ -1133,7 +1133,7 @@ func (s *Site) defaultAtomXML(feedURL string, htmlURL string, title string, page
 	b.WriteString("    <link rel=\"alternate\" type=\"text/html\" href=\"")
 	b.WriteString(xmlEscape(htmlURL))
 	b.WriteString("\"/>\n")
-	b.WriteString("    <generator uri=\"https://www.getzola.org/\">Zola</generator>\n")
+	b.WriteString("    <generator uri=\"https://github.com/abdusco/kopkop\">Kopkop</generator>\n")
 	b.WriteString("    <updated>")
 	b.WriteString(updated)
 	b.WriteString("</updated>\n")
@@ -1239,7 +1239,7 @@ func (s *Site) defaultRSSXML(feedURL, htmlURL, title string, pages []*content.Pa
 	b.WriteString("        <title>" + xmlEscape(title) + "</title>\n")
 	b.WriteString("        <link>" + xmlEscape(htmlURL) + "</link>\n")
 	b.WriteString("        <description>" + xmlEscape(description) + "</description>\n")
-	b.WriteString("        <generator>Zola</generator>\n")
+	b.WriteString("        <generator>kopkop</generator>\n")
 	b.WriteString("        <atom:link href=\"" + xmlEscape(feedURL) + "\" rel=\"self\" type=\"application/rss+xml\"/>\n")
 	if len(pages) > 0 && pages[0].Date != nil {
 		b.WriteString("        <lastBuildDate>" + pages[0].Date.UTC().Format(time.RFC1123Z) + "</lastBuildDate>\n")
@@ -1444,8 +1444,8 @@ func (s *Site) renderRobots() error {
 	return s.writeOutput("robots.txt", content)
 }
 
-// renderAliases writes a redirect page for every alias. Like Zola, sections
-// publish their aliases even with render = false; pages do not.
+// renderAliases writes a redirect page for every alias. Sections publish their
+// aliases even with render = false; pages do not.
 func (s *Site) renderAliases() error {
 	for rel, sec := range s.Library.Sections {
 		for _, alias := range sec.Meta.Aliases {

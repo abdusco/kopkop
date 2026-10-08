@@ -30,7 +30,7 @@ func TestSitemapLastmod(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":             "base_url='https://example.com'\ngenerate_sitemap=true\n",
+				"config.toml":             "base_url='https://example.com'\ngenerate_sitemap=true\n",
 				"content/_index.md":     "+++\ntitle='Home'\n+++\n",
 				"content/a.md":          tc.page,
 				"templates/page.html":   "",
@@ -41,7 +41,7 @@ func TestSitemapLastmod(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
 
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			require.NoError(t, s.Load(false))
 			require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))

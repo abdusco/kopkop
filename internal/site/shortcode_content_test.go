@@ -24,7 +24,7 @@ func TestShortcodesInSectionsAndSummaries(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":                        "base_url='https://example.com'",
+				"config.toml":                        "base_url='https://example.com'",
 				"content/_index.md":                "+++\ntitle='Home'\n+++\n" + tc.raw,
 				"content/post.md":                  "+++\ntitle='Post'\n+++\n" + tc.raw,
 				"templates/page.html":              "{{ page.content|safe }} {{ page.summary|safe }}",
@@ -37,7 +37,7 @@ func TestShortcodesInSectionsAndSummaries(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			err = s.Build(BuildOptions{BuildMode: BuildMemory})
 			if tc.wantError != "" {

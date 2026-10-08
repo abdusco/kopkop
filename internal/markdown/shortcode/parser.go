@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Placeholder = "@@ZOLA_SC_PLACEHOLDER@@"
+const Placeholder = "@@KOPKOP_SC_PLACEHOLDER@@"
 
 type Shortcode struct {
 	Name  string

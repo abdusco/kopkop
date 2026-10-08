@@ -17,7 +17,7 @@ func BenchmarkLargeSiteBuild(b *testing.B) {
 				}
 			}
 			for name, body := range map[string]string{
-				"zola.toml":              "base_url='https://example.com'\n[[taxonomies]]\nname='tags'\n",
+				"config.toml":              "base_url='https://example.com'\n[[taxonomies]]\nname='tags'\n",
 				"content/_index.md":      "+++\ntitle='Home'\nsort_by='weight'\n+++\nHome",
 				"templates/page.html":    `<h1>{{ page.title }}</h1>{{ page.content|safe }}{{ section.title }}{{ get_page(path="post-0.md").title }}{{ get_section(path="_index.md").title }}{{ get_taxonomy(kind="tags").name }}`,
 				"templates/section.html": `<h1>{{ section.title }}</h1>{% for page in section.pages %}{{ page.title }}{% endfor %}`,
@@ -32,7 +32,7 @@ func BenchmarkLargeSiteBuild(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -54,7 +54,7 @@ func BenchmarkSiteBuild(b *testing.B) {
 	root := b.TempDir()
 	_ = os.MkdirAll(filepath.Join(root, "content"), 0o755)
 	_ = os.MkdirAll(filepath.Join(root, "templates"), 0o755)
-	_ = os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+	_ = os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
 base_url = "https://example.com"
 title = "Bench"
 output_dir = "public"
@@ -71,7 +71,7 @@ generate_robots_txt = true
 	_ = os.WriteFile(filepath.Join(root, "templates", "page.html"), []byte("<html><body>{{ page.content|safe }}</body></html>"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "templates", "section.html"), []byte("<html><body>{{ section.title }}</body></html>"), 0o644)
 
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	if err != nil {
 		b.Fatal(err)
 	}

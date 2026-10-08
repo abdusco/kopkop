@@ -109,7 +109,7 @@ func TestRenderContent(t *testing.T) {
 			ctx:      RenderContext{InsertAnchorLinks: true},
 			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
 				assert.NoError(t, err)
-				assert.Contains(t, html, `class="zola-anchor"`)
+				assert.Contains(t, html, `class="kopkop-anchor"`)
 				assert.Contains(t, html, `href="#heading"`)
 			},
 		},
@@ -119,7 +119,7 @@ func TestRenderContent(t *testing.T) {
 			ctx:      RenderContext{InsertAnchorLinks: false},
 			assertResult: func(t *testing.T, html string, err error, _ Rendered) {
 				assert.NoError(t, err)
-				assert.NotContains(t, html, `class="zola-anchor"`)
+				assert.NotContains(t, html, `class="kopkop-anchor"`)
 			},
 		},
 		{
@@ -295,7 +295,7 @@ func TestTransformHeadings(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Contains(t, html, `<h1 id="one">One</h1>`)
 				assert.Contains(t, html, `<h2 id="two">Two</h2>`)
-				assert.NotContains(t, html, `class="zola-anchor"`)
+				assert.NotContains(t, html, `class="kopkop-anchor"`)
 			},
 		},
 		{
@@ -306,7 +306,7 @@ func TestTransformHeadings(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Contains(t, html, `id="example"`)
 				assert.Contains(t, html, `id="example-1"`)
-				assert.Equal(t, 2, strings.Count(html, `class="zola-anchor"`))
+				assert.Equal(t, 2, strings.Count(html, `class="kopkop-anchor"`))
 				assert.Contains(t, html, `href="#example"`)
 				assert.Contains(t, html, `href="#example-1"`)
 			},

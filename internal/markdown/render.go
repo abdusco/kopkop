@@ -162,7 +162,7 @@ func transformHeadings(doc ast.Node, source []byte, insertAnchors bool) {
 		if insertAnchors {
 			anchor := ast.NewLink()
 			anchor.Destination = []byte("#" + id)
-			anchor.SetAttributeString("class", []byte("zola-anchor"))
+			anchor.SetAttributeString("class", []byte("kopkop-anchor"))
 			anchor.SetAttributeString("aria-label", []byte("Anchor link for: "+text))
 			anchor.AppendChild(anchor, ast.NewString([]byte("🔗")))
 			h.AppendChild(h, anchor)

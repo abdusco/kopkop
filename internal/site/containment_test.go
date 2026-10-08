@@ -40,7 +40,7 @@ func TestBuildRejectsOutputTraversal(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Join(base, "outside"), 0o755))
 				sentinel := filepath.Join(base, "outside", "sentinel")
 				require.NoError(t, os.WriteFile(sentinel, []byte("keep me"), 0o644))
-				config := filepath.Join(base, "zola.toml")
+				config := filepath.Join(base, "config.toml")
 				require.NoError(t, os.WriteFile(config, []byte("base_url='https://example.com'\n"+tc.config), 0o644))
 				require.NoError(t, os.WriteFile(filepath.Join(contentDir, pageName), []byte(tc.page), 0o644))
 				if tc.bundle {
@@ -76,7 +76,7 @@ func TestBuildRejectsEscapingSourceSymlinks(t *testing.T) {
 			}
 			outside := filepath.Join(parent, "sentinel")
 			require.NoError(t, os.WriteFile(outside, []byte("private source"), 0o644))
-			config := filepath.Join(base, "zola.toml")
+			config := filepath.Join(base, "config.toml")
 			cfg := "base_url='https://example.com'\n"
 			if source == "themes/demo/theme.toml" {
 				cfg += "theme='demo'\n"

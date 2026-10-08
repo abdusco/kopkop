@@ -14,7 +14,7 @@ func TestReloadPreservesConstructionOverrides(t *testing.T) {
 		t.Run(override, func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
-			cfg := filepath.Join(root, "zola.toml")
+			cfg := filepath.Join(root, "config.toml")
 			require.NoError(t, os.WriteFile(cfg, []byte("base_url='https://example.com'\noutput_dir='original'\n"), 0o644))
 			s, err := New(SiteParams{BasePath: root, ConfigPath: cfg, OutputDir: override})
 			require.NoError(t, err)

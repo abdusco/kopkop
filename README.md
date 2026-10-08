@@ -1,6 +1,6 @@
 # kopkop
 
-A Go-based static site generator behaviorally compatible with [Zola](https://www.getzola.org/). Existing Zola sites can build with minimal changes while preserving Zola semantics.
+A Go-based static site generator for building content driven websites.
 
 ## Installation
 
@@ -46,7 +46,7 @@ Scaffolds a new site with a minimal directory structure:
 
 ```
 mysite/
-  zola.toml         # site config
+  config.toml       # site config
   content/
     _index.md       # root section
   templates/
@@ -152,7 +152,7 @@ Successful external checks are cached for `link_checker.cache_ttl_seconds` (defa
 
 ## Configuration
 
-Config is loaded from `zola.toml` or `config.toml`, searched in the current directory and its ancestors.
+Config is loaded from `config.toml`, searched in the current directory and its ancestors.
 
 ```toml
 base_url = "https://example.com"

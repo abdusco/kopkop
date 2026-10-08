@@ -58,12 +58,12 @@ func TestBuildIndexRejectsEscapingPaths(t *testing.T) {
 func TestStripTags_UsesVisibleTextNodesOnly(t *testing.T) {
 	t.Parallel()
 
-	in := `<h2 id="io-teereader">io.TeeReader<a class="zola-anchor" href="#io-teereader">🔗</a></h2><p>Hello <strong>world</strong> &amp; friends</p><script>var x = 1;</script>`
+	in := `<h2 id="io-teereader">io.TeeReader<a class="kopkop-anchor" href="#io-teereader">🔗</a></h2><p>Hello <strong>world</strong> &amp; friends</p><script>var x = 1;</script>`
 	out := stripTags(in)
 
 	require.Equal(t, "io.TeeReader 🔗 Hello world & friends", out)
 	require.NotContains(t, out, "id=")
-	require.NotContains(t, out, "zola-anchor")
+	require.NotContains(t, out, "kopkop-anchor")
 	require.NotContains(t, out, "var x")
 }
 

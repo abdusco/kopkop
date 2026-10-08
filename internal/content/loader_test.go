@@ -18,7 +18,7 @@ func TestLoadLibrary_BuildsPagesSectionsTaxonomies(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "content", "blog"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "_index.md"), []byte("+++\ntitle='Home'\n+++\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "blog", "_index.md"), []byte("+++\ntitle='Blog'\n+++\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "blog", "post.md"), []byte("+++\ntitle='Post'\ntaxonomies={ tags=['go','zola'] }\n+++\nHello"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "content", "blog", "post.md"), []byte("+++\ntitle='Post'\ntaxonomies={ tags=['go','kopkop'] }\n+++\nHello"), 0o644))
 
 	cfg := config.Default()
 	cfg.BaseURL = "https://example.com"
@@ -37,7 +37,7 @@ func TestLoadLibrary_BuildsPagesSectionsTaxonomies(t *testing.T) {
 	tax := lib.Taxonomies["tags"]
 	require.NotNil(t, tax)
 	require.NotNil(t, tax.Terms["go"])
-	require.NotNil(t, tax.Terms["zola"])
+	require.NotNil(t, tax.Terms["kopkop"])
 	assert.Equal(t, []string{"blog/post.md"}, tax.Terms["go"].Pages)
 }
 

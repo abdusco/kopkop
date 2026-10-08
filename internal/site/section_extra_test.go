@@ -13,7 +13,7 @@ func TestSectionExtraIsAvailableInTemplates(t *testing.T) {
 
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"zola.toml":              "base_url = \"https://example.com\"\n",
+		"config.toml":              "base_url = \"https://example.com\"\n",
 		"content/_index.md":      "+++\n[extra]\ncolor = 'red'\n+++\n",
 		"content/blog/_index.md": "+++\ntitle = 'Blog'\n+++\n",
 		"templates/section.html": "{{ section.title }}:{{ section.extra.color | default('none') }}",
@@ -23,7 +23,7 @@ func TestSectionExtraIsAvailableInTemplates(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 	}
 
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))

@@ -13,7 +13,7 @@ func TestRelativeLinkStrategy(t *testing.T) {
 
 	files := func(strategy string) map[string]string {
 		return map[string]string{
-			"zola.toml":                    "base_url = \"https://example.com/blog\"\ntitle = 'Site'\nlink_strategy = '" + strategy + "'\n",
+			"config.toml":                    "base_url = \"https://example.com/blog\"\ntitle = 'Site'\nlink_strategy = '" + strategy + "'\n",
 			"content/_index.md":            "+++\ntitle = 'Home'\n+++\n",
 			"content/a/index.md":           "+++\ntitle = 'A'\naliases = ['/old/']\n+++\n![pic](pic.png)\n\n[b](@/b.md#top)\n",
 			"content/a/pic.png":            "x",
@@ -50,7 +50,7 @@ func TestRelativeLinkStrategy(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
 
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			require.NoError(t, s.Load(false))
 			require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))

@@ -65,7 +65,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			files := map[string]string{
-				"zola.toml":            "base_url='https://example.com'\ntitle='Initial'\nbuild_search_index=true\n",
+				"config.toml":            "base_url='https://example.com'\ntitle='Initial'\nbuild_search_index=true\n",
 				"content/blog/post.md": "First body",
 				"templates/page.html":  "{{ config.title }}:{{ page.content | safe }}",
 				"static/css/style.css": "old-style",
@@ -76,7 +76,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 				require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 			}
-			s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			for _, tc := range []struct{ name, path, body, url, want string }{
 				{"nested content", "content/blog/post.md", "Second body", "/blog/post/", "Second body"},
 				{"template", "templates/page.html", "Changed:{{ config.title }}:{{ page.content | safe }}", "/blog/post/", "Changed:Initial"},
-				{"configuration", "zola.toml", "base_url='https://changed.example'\ntitle='Updated'\nbuild_search_index=true\nextra_watch_paths=['extra']\n", "/blog/post/", "Changed:Updated"},
+				{"configuration", "config.toml", "base_url='https://changed.example'\ntitle='Updated'\nbuild_search_index=true\nextra_watch_paths=['extra']\n", "/blog/post/", "Changed:Updated"},
 				{"new nested tree", "content/new/deep/post.md", "New nested body", "/new/deep/post/", "New nested body"},
 				{"edit new nested tree", "content/new/deep/post.md", "Edited nested body", "/new/deep/post/", "Edited nested body"},
 				{"nested static", "static/css/style.css", "new-style", "/css/style.css", "new-style"},
@@ -152,7 +152,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			require.NotContains(t, fetch("/search_index.json"), "changed.example")
 			for _, tc := range []struct{ name, path, body string }{
 				{"bad template", "templates/page.html", "{{ broken() }}"},
-				{"bad config", "zola.toml", "invalid = ["},
+				{"bad config", "config.toml", "invalid = ["},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					require.NoError(t, os.WriteFile(filepath.Join(root, tc.path), []byte(tc.body), 0o644))
@@ -176,13 +176,13 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			}
 			// Recover configuration via atomic replacement, then repair the template.
 			require.NoError(t, os.WriteFile(filepath.Join(root, "config.tmp"), []byte("base_url='https://example.com'\ntitle='Recovered'\n"), 0o644))
-			require.NoError(t, os.Rename(filepath.Join(root, "config.tmp"), filepath.Join(root, "zola.toml")))
+			require.NoError(t, os.Rename(filepath.Join(root, "config.tmp"), filepath.Join(root, "config.toml")))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "templates/page.html"), []byte("{{ config.title }}:{{ page.content | safe }}"), 0o644))
 			require.Eventually(t, func() bool { return strings.Contains(fetch("/blog/post/"), "Recovered:") }, 5*time.Second, 10*time.Millisecond)
 			require.NoError(t, os.MkdirAll(filepath.Join(root, "themes/demo/templates"), 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "themes/demo/theme.toml"), []byte("name='demo'\n"), 0o644))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "themes/demo/templates/page.html"), []byte("Theme:{{ page.content | safe }}"), 0o644))
-			require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte("base_url='https://example.com'\ntheme='demo'\n"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("base_url='https://example.com'\ntheme='demo'\n"), 0o644))
 			require.NoError(t, os.Remove(filepath.Join(root, "templates/page.html")))
 			require.Eventually(t, func() bool { return strings.Contains(fetch("/blog/post/"), "Theme:") }, 5*time.Second, 10*time.Millisecond)
 			require.NoError(t, os.WriteFile(filepath.Join(root, "themes/demo/templates/page.html"), []byte("Updated theme:{{ page.content | safe }}"), 0o644))
@@ -210,7 +210,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 func TestServePreviewSubpath(t *testing.T) {
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"zola.toml":           "base_url='https://production.example/old/'\n",
+		"config.toml":           "base_url='https://production.example/old/'\n",
 		"content/post.md":     "Body",
 		"templates/page.html": `{{ config.base_url }}|{{ page.permalink }}|{{ page.content | safe }}`,
 	} {
@@ -218,7 +218,7 @@ func TestServePreviewSubpath(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(filename), 0o755))
 		require.NoError(t, os.WriteFile(filename, []byte(body), 0o644))
 	}
-	s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

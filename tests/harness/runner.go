@@ -23,12 +23,12 @@ func BuildWithKopkop(root string, configPath string, outputDir string, includeDr
 	})
 }
 
-func BuildWithZola(zolaBin string, root string, configName string, outputDir string, drafts bool) error {
-	if zolaBin == "" {
-		return fmt.Errorf("zola binary path is empty")
+func BuildWithReference(referenceBin string, root string, configName string, outputDir string, drafts bool) error {
+	if referenceBin == "" {
+		return fmt.Errorf("reference binary path is empty")
 	}
-	if _, err := os.Stat(zolaBin); err != nil {
-		return fmt.Errorf("zola binary not found: %w", err)
+	if _, err := os.Stat(referenceBin); err != nil {
+		return fmt.Errorf("reference binary not found: %w", err)
 	}
 
 	absRoot, err := filepath.Abs(root)
@@ -39,11 +39,11 @@ func BuildWithZola(zolaBin string, root string, configName string, outputDir str
 	if drafts {
 		args = append(args, "--drafts")
 	}
-	cmd := exec.Command(zolaBin, args...)
+	cmd := exec.Command(referenceBin, args...)
 	cmd.Dir = absRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("zola build failed: %w: %s", err, string(out))
+		return fmt.Errorf("reference build failed: %w: %s", err, string(out))
 	}
 	return nil
 }

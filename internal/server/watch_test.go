@@ -14,7 +14,7 @@ import (
 func TestWatchPlanFiltersEvents(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	s := &site.Site{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputPath: filepath.Join(root, "public"), Config: config.Config{ExtraWatchPaths: []string{"extra"}}}
+	s := &site.Site{BasePath: root, ConfigPath: filepath.Join(root, "config.toml"), OutputPath: filepath.Join(root, "public"), Config: config.Config{ExtraWatchPaths: []string{"extra"}}}
 	plan := newWatchPlan(s, []string{"custom/file.txt"})
 	for _, tc := range []struct {
 		name string
@@ -27,7 +27,7 @@ func TestWatchPlanFiltersEvents(t *testing.T) {
 		{"themes/demo/templates/page.html", fsnotify.Write, true},
 		{"static/css/style.css", fsnotify.Remove, true},
 		{"data/info.json", fsnotify.Write, true},
-		{"zola.toml", fsnotify.Rename, true},
+		{"config.toml", fsnotify.Rename, true},
 		{"extra/nested/data.txt", fsnotify.Write, true},
 		{"custom/file.txt", fsnotify.Write, true},
 		{"custom/unrelated.txt", fsnotify.Write, false},
@@ -55,7 +55,7 @@ func TestWatchPlanRegistersNewDirectories(t *testing.T) {
 	w, err := fsnotify.NewWatcher()
 	require.NoError(t, err)
 	defer w.Close()
-	s := &site.Site{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml"), OutputPath: filepath.Join(root, "public")}
+	s := &site.Site{BasePath: root, ConfigPath: filepath.Join(root, "config.toml"), OutputPath: filepath.Join(root, "public")}
 	plan := newWatchPlan(s, nil)
 	require.NoError(t, plan.sync(w))
 	require.Contains(t, w.WatchList(), filepath.Join(root, "content/blog/deep"))

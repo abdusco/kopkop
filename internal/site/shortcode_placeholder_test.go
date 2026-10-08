@@ -34,7 +34,7 @@ func TestHTMLShortcodeSubstitution(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":                     "base_url = 'https://example.com'\ntitle = 'Site'\n",
+				"config.toml":                     "base_url = 'https://example.com'\ntitle = 'Site'\n",
 				"content/_index.md":             "+++\ntitle = 'Home'\n+++\n",
 				"content/post.md":               "+++\ntitle = 'Post'\n+++\n" + tc.page,
 				"templates/shortcodes/tag.html": "[{{ v }}]",
@@ -45,7 +45,7 @@ func TestHTMLShortcodeSubstitution(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 			}
 
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			require.NoError(t, s.Load(false))
 			err = s.Build(BuildOptions{BuildMode: BuildDisk})

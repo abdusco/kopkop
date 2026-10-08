@@ -16,7 +16,7 @@ func TestBuild_IsDeterministicForSimpleFixture(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "content"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
 base_url = "https://example.com"
 title = "Fixture"
 output_dir = "public"
@@ -32,15 +32,15 @@ generate_robots_txt = true
 
 	outA := filepath.Join(root, "public-a")
 	outB := filepath.Join(root, "public-b")
-	require.NoError(t, harness.BuildWithKopkop(root, filepath.Join(root, "zola.toml"), outA, false))
-	require.NoError(t, harness.BuildWithKopkop(root, filepath.Join(root, "zola.toml"), outB, false))
+	require.NoError(t, harness.BuildWithKopkop(root, filepath.Join(root, "config.toml"), outA, false))
+	require.NoError(t, harness.BuildWithKopkop(root, filepath.Join(root, "config.toml"), outB, false))
 
 	diffs, err := harness.CompareDirectories(outA, outB, nil)
 	require.NoError(t, err)
 	require.Empty(t, diffs)
 }
 
-func TestBuild_RealZolaFixtures_Optional(t *testing.T) {
+func TestBuild_VendoredFixtures_Optional(t *testing.T) {
 	t.Parallel()
 
 	if os.Getenv("RUN_VENDORED_FIXTURES") != "1" {
@@ -50,11 +50,8 @@ func TestBuild_RealZolaFixtures_Optional(t *testing.T) {
 	for _, name := range []string{"test_site"} {
 		name := name
 		t.Run(name, func(t *testing.T) {
-			root := filepath.Join("..", "fixtures", "zola", name)
+			root := filepath.Join("..", "fixtures", "reference", name)
 			cfg := filepath.Join(root, "config.toml")
-			if _, err := os.Stat(cfg); err != nil {
-				cfg = filepath.Join(root, "zola.toml")
-			}
 			out := filepath.Join(t.TempDir(), "public")
 			require.NoError(t, harness.BuildWithKopkop(root, cfg, out, false))
 			require.FileExists(t, filepath.Join(out, "404.html"))

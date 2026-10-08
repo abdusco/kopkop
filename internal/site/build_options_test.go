@@ -19,7 +19,7 @@ func TestInvalidBuildOptionsPreserveOutputAndConfiguration(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			configFile := filepath.Join(root, "zola.toml")
+			configFile := filepath.Join(root, "config.toml")
 			require.NoError(t, os.WriteFile(configFile, []byte("base_url='https://example.com'"), 0o644))
 			s, err := New(SiteParams{BasePath: root, ConfigPath: configFile})
 			require.NoError(t, err)

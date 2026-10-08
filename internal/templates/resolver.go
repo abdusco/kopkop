@@ -22,7 +22,7 @@ func (r Resolver) Resolve(name string, available map[string]struct{}) (string, e
 		}
 	}
 
-	builtinName := fmt.Sprintf("__zola_builtins/%s", name)
+	builtinName := fmt.Sprintf("__kopkop_builtins/%s", name)
 	if _, ok := available[builtinName]; ok {
 		return builtinName, nil
 	}

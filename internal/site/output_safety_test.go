@@ -26,7 +26,7 @@ func TestOutputPathSafety(t *testing.T) {
 		{name: "data", output: "data", unsafe: true},
 		{name: "git", output: ".git", unsafe: true},
 		{name: "hidden tool dir", output: ".tool/public", unsafe: true},
-		{name: "config", output: "zola.toml", unsafe: true},
+		{name: "config", output: "config.toml", unsafe: true},
 		{name: "watch path", output: "watched/public", unsafe: true},
 		{name: "public", output: "public"},
 		{name: "missing parents", output: "dist/site/public"},
@@ -39,7 +39,7 @@ func TestOutputPathSafety(t *testing.T) {
 			base := filepath.Join(parent, "site")
 			require.NoError(t, os.MkdirAll(filepath.Join(base, "content"), 0o755))
 			require.NoError(t, os.MkdirAll(filepath.Join(base, ".tool"), 0o755))
-			config := filepath.Join(base, "zola.toml")
+			config := filepath.Join(base, "config.toml")
 			require.NoError(t, os.WriteFile(config, []byte("base_url='https://example.com'"), 0o644))
 			sentinel := filepath.Join(base, "content", "post.md")
 			require.NoError(t, os.WriteFile(sentinel, []byte("keep me"), 0o644))
@@ -73,7 +73,7 @@ func TestBuildRechecksOutputSafety(t *testing.T) {
 			t.Parallel()
 			base := t.TempDir()
 			require.NoError(t, os.MkdirAll(filepath.Join(base, "content"), 0o755))
-			config := filepath.Join(base, "zola.toml")
+			config := filepath.Join(base, "config.toml")
 			require.NoError(t, os.WriteFile(config, []byte("base_url='https://example.com'"), 0o644))
 			sentinel := filepath.Join(base, "content", "post.md")
 			require.NoError(t, os.WriteFile(sentinel, []byte("keep me"), 0o644))
@@ -103,7 +103,7 @@ func TestOutputPathSymlinkSafety(t *testing.T) {
 			t.Parallel()
 			base := filepath.Join(t.TempDir(), "site")
 			require.NoError(t, os.MkdirAll(filepath.Join(base, "content"), 0o755))
-			config := filepath.Join(base, "zola.toml")
+			config := filepath.Join(base, "config.toml")
 			require.NoError(t, os.WriteFile(config, []byte("base_url='https://example.com'"), 0o644))
 			sentinel := filepath.Join(base, "content", "post.md")
 			require.NoError(t, os.WriteFile(sentinel, []byte("keep me"), 0o644))

@@ -17,8 +17,8 @@ func TestRunInitBuildCheck(t *testing.T) {
 
 	root := filepath.Join(t.TempDir(), "site")
 	require.NoError(t, runInit([]string{root}))
-	require.FileExists(t, filepath.Join(root, "zola.toml"))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(`
+	require.FileExists(t, filepath.Join(root, "config.toml"))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte(`
 base_url = "http://127.0.0.1:1111"
 title = "My Site"
 output_dir = "public"
@@ -112,7 +112,7 @@ func TestRunInitConflicts(t *testing.T) {
 				args = append(args, "--force")
 			}
 			require.Error(t, runInit(args))
-			require.NoFileExists(t, filepath.Join(root, "zola.toml"))
+			require.NoFileExists(t, filepath.Join(root, "config.toml"))
 			if !tc.directory {
 				data, err := os.ReadFile(p)
 				require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestRunInitForceFlagPlacement(t *testing.T) {
 		t.Run(fmt.Sprint(after), func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
-			require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte("replace me"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte("replace me"), 0o644))
 			args := []string{"--force", root}
 			if after {
 				args = []string{root, "--force"}
@@ -150,7 +150,7 @@ func TestRunCheck_WarnModeDoesNotFail(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "site")
 	require.NoError(t, runInit([]string{root}))
 
-	require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(fmt.Sprintf(`
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte(fmt.Sprintf(`
 base_url = "http://127.0.0.1:1111"
 title = "My Site"
 output_dir = "public"
@@ -184,7 +184,7 @@ func TestRunCheckSeverityPolicies(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "site")
 			require.NoError(t, runInit([]string{root}))
 			cfg := fmt.Sprintf("base_url='https://example.com'\n[link_checker]\ninternal_level='%s'\nexternal_level='%s'\nuse_cache=false\n", tc.internal, tc.external)
-			require.NoError(t, os.WriteFile(filepath.Join(root, "zola.toml"), []byte(cfg), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "config.toml"), []byte(cfg), 0o644))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "templates/page.html"), []byte(tc.html), 0o644))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "content/link.md"), []byte(tc.markdown), 0o644))
 			err := runCheck([]string{"--root", root})

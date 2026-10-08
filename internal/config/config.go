@@ -35,7 +35,7 @@ type LinkChecker struct {
 	Refresh            bool             `toml:"-"`
 }
 
-// defaultHighlightTheme is used when a Zola config enables highlighting
+// defaultHighlightTheme is used when a config enables highlighting
 // without naming a Chroma style.
 const defaultHighlightTheme = "github"
 
@@ -95,7 +95,7 @@ func (m *Markdown) UnmarshalTOML(v any) error {
 			return fmt.Errorf("markdown.external_links_target_blank has unsupported type %T", raw)
 		}
 	}
-	// Zola spellings: [markdown.highlighting] theme = "..." and highlight_code = bool.
+	// Also accept [markdown.highlighting] theme = "..." and highlight_code = bool.
 	if raw, exists := obj["highlighting"]; exists {
 		table, ok := raw.(map[string]any)
 		if !ok {
@@ -147,7 +147,7 @@ type TaxonomyConfig struct {
 }
 
 type Config struct {
-	// UnsupportedKeys reports ignored settings for compatibility with Zola configs.
+	// UnsupportedKeys reports ignored settings from the config file.
 	UnsupportedKeys   []string `toml:"-"`
 	metadata          *toml.MetaData
 	BaseURL           string           `toml:"base_url"`
@@ -396,7 +396,7 @@ func DiscoverConfigPath(startDir string, configArg string) (rootDir string, conf
 		return filepath.Dir(configArg), configArg, nil
 	}
 
-	names := []string{"zola.toml", "config.toml"}
+	names := []string{"config.toml"}
 	if configArg != "" {
 		names = []string{configArg}
 	}
@@ -423,5 +423,5 @@ func DiscoverConfigPath(startDir string, configArg string) (rootDir string, conf
 	if configArg != "" {
 		return "", "", fmt.Errorf("%s not found in current directory or ancestors", configArg)
 	}
-	return "", "", errors.New("zola.toml (or config.toml) not found in current directory or ancestors")
+	return "", "", errors.New("config.toml not found in current directory or ancestors")
 }

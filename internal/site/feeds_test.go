@@ -15,7 +15,7 @@ func buildFeedSite(t *testing.T, files map[string]string) string {
 		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 	}
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))
@@ -26,7 +26,7 @@ func TestFeedsAndSitemapUseSiteTemplates(t *testing.T) {
 	t.Parallel()
 
 	out := buildFeedSite(t, map[string]string{
-		"zola.toml":              "base_url = \"https://example.com\"\ntitle = 'Site'\ngenerate_feeds = true\nfeed_filenames = ['atom.xml']\n",
+		"config.toml":              "base_url = \"https://example.com\"\ntitle = 'Site'\ngenerate_feeds = true\nfeed_filenames = ['atom.xml']\n",
 		"content/_index.md":      "+++\n+++\n",
 		"content/a.md":           "+++\ntitle = 'A'\ndate = 2024-01-01\n+++\nbody",
 		"content/b.md":           "+++\ntitle = 'B'\ndate = 2024-02-01\n+++\nbody",
@@ -50,7 +50,7 @@ func TestRSSFeedFilenameProducesRSSAndHonoursFeedLimit(t *testing.T) {
 	t.Parallel()
 
 	out := buildFeedSite(t, map[string]string{
-		"zola.toml":              "base_url = \"https://example.com\"\ntitle = 'Site'\ngenerate_feeds = true\nfeed_filenames = ['rss.xml']\nfeed_limit = 1\n",
+		"config.toml":              "base_url = \"https://example.com\"\ntitle = 'Site'\ngenerate_feeds = true\nfeed_filenames = ['rss.xml']\nfeed_limit = 1\n",
 		"content/_index.md":      "+++\n+++\n",
 		"content/a.md":           "+++\ntitle = 'Older'\ndate = 2024-01-01\n+++\nbody",
 		"content/b.md":           "+++\ntitle = 'Newer'\ndate = 2024-02-01\n+++\nbody",

@@ -25,10 +25,10 @@ func TestResolverResolve_Table(t *testing.T) {
 			available: map[string]struct{}{
 				"page.html":                           {},
 				"hyde/templates/page.html":            {},
-				"__zola_builtins/page.html":           {},
-				"__zola_builtins/section.html":        {},
+				"__kopkop_builtins/page.html":           {},
+				"__kopkop_builtins/section.html":        {},
 				"hyde/templates/section.html":         {},
-				"__zola_builtins/internal/alias.html": {},
+				"__kopkop_builtins/internal/alias.html": {},
 			},
 			want: "page.html",
 		},
@@ -46,9 +46,9 @@ func TestResolverResolve_Table(t *testing.T) {
 			template: "404.html",
 			theme:    "hyde",
 			available: map[string]struct{}{
-				"__zola_builtins/404.html": {},
+				"__kopkop_builtins/404.html": {},
 			},
-			want: "__zola_builtins/404.html",
+			want: "__kopkop_builtins/404.html",
 		},
 		{
 			name:      "missing template returns error",

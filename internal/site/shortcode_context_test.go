@@ -13,7 +13,7 @@ func TestShortcodesAndErrorPagesHaveConfigAndHelpers(t *testing.T) {
 
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"zola.toml":                      "base_url = \"https://example.com/blog\"\ntitle = 'Site'\n",
+		"config.toml":                      "base_url = \"https://example.com/blog\"\ntitle = 'Site'\n",
 		"content/_index.md":              "+++\ntitle = 'Home'\n+++\n{{ info() }}",
 		"content/about.md":               "+++\ntitle = 'About'\ndate = 2024-05-06\n+++\n{{ info() }}",
 		"templates/shortcodes/info.html": "[{{ config.title }}|{{ get_url(path='a.css') }}|{{ get_page(path='about.md').title }}|{{ get_section(path='_index.md').title }}]",
@@ -25,7 +25,7 @@ func TestShortcodesAndErrorPagesHaveConfigAndHelpers(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
 	}
 
-	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+	s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 	require.NoError(t, err)
 	require.NoError(t, s.Load(false))
 	require.NoError(t, s.Build(BuildOptions{BuildMode: BuildDisk}))

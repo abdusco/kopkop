@@ -14,7 +14,7 @@ func TestSharedTemplateViewsRefreshBetweenBuilds(t *testing.T) {
 		t.Run(fmt.Sprintf("concurrency=%d", concurrency), func(t *testing.T) {
 			root := t.TempDir()
 			for name, body := range map[string]string{
-				"zola.toml":              "base_url='https://example.com'\ntitle='Initial'\n[[taxonomies]]\nname='tags'\n",
+				"config.toml":              "base_url='https://example.com'\ntitle='Initial'\n[[taxonomies]]\nname='tags'\n",
 				"content/blog/_index.md": "+++\ntitle='Blog'\npaginate_by=2\nsort_by='weight'\n+++\n**Initial section**",
 				"content/blog/a.md":      "+++\ntitle='A'\nweight=1\n[taxonomies]\ntags=['Go']\n+++\n**Initial page**",
 				"content/blog/b.md":      "+++\ntitle='B'\nweight=2\n+++\nB",
@@ -26,7 +26,7 @@ func TestSharedTemplateViewsRefreshBetweenBuilds(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 				require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 			}
-			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "zola.toml")})
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
 			require.NoError(t, err)
 			for _, step := range []struct{ configTitle, pageTitle, body, sectionBody string }{
 				{"Initial", "A", "Initial page", "Initial section"},
