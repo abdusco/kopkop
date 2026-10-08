@@ -582,7 +582,13 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 		if err != nil {
 			return value.Undefined(), fmt.Errorf("load_data: %w", err)
 		}
-		resolved := strings.TrimPrefix(path.Clean(strings.ReplaceAll(p, "\\", "/")), "/")
+		normalized := strings.ReplaceAll(p, "\\", "/")
+		resolved := strings.TrimPrefix(path.Clean(normalized), "/")
+		if strings.HasPrefix(normalized, "./") || strings.HasPrefix(normalized, "../") {
+			if currentPath, ok := currentContentPath(state); ok {
+				resolved = path.Join("content", path.Dir(currentPath), resolved)
+			}
+		}
 		b, err := fs.ReadFile(sourceFS, resolved)
 		if err != nil {
 			return value.Undefined(), err
@@ -992,4 +998,16 @@ func firstPathArg(args []value.Value, kwargs map[string]value.Value) (string, er
 		return "", fmt.Errorf("path must be string")
 	}
 	return "", fmt.Errorf("missing path argument")
+}
+
+func currentContentPath(state *minijinja.State) (string, bool) {
+	for _, candidate := range []value.Value{
+		state.Lookup("page").GetAttr("relative_path"),
+		state.Lookup("section").GetAttr("relative_path"),
+	} {
+		if p, ok := candidate.AsString(); ok && p != "" {
+			return path.Clean(strings.ReplaceAll(p, "\\", "/")), true
+		}
+	}
+	return "", false
 }
