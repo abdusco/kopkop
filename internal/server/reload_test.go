@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,70 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServeCachebustAssetChanges(t *testing.T) {
+	for _, store := range []bool{false, true} {
+		t.Run(fmt.Sprintf("store=%v", store), func(t *testing.T) {
+			root := t.TempDir()
+			for name, body := range map[string]string{
+				"config.toml":             "base_url='https://example.com'\n",
+				"content/about/index.md":  "About",
+				"content/about/dither.js": "initial script",
+				"static/style.css":        "initial style",
+				"templates/page.html":     `{{ get_url(path="about/dither.js", cachebust=true) }}|{{ get_url(path="style.css", cachebust=true) }}`,
+			} {
+				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
+			}
+			s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
+			require.NoError(t, err)
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(context.Background())
+			finished := make(chan error, 1)
+			go func() {
+				finished <- run(ctx, s, ServeOptions{Debounce: 20 * time.Millisecond, StoreHTML: store}, listener)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case err := <-finished:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					_ = listener.Close()
+					t.Error("serve did not stop")
+				}
+			})
+			client := &http.Client{Timeout: time.Second}
+			defer client.CloseIdleConnections()
+			fetch := func(path string) string {
+				resp, err := client.Get("http://" + listener.Addr().String() + path)
+				if err != nil {
+					return ""
+				}
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				return string(body)
+			}
+			for _, version := range []string{"initial", "updated"} {
+				script, style := version+" script", version+" style"
+				if version == "updated" {
+					require.NoError(t, os.WriteFile(filepath.Join(root, "content/about/dither.js"), []byte(script), 0o644))
+					require.NoError(t, os.WriteFile(filepath.Join(root, "static/style.css"), []byte(style), 0o644))
+				}
+				scriptHash, styleHash := sha256.Sum256([]byte(script)), sha256.Sum256([]byte(style))
+				scriptURL := fmt.Sprintf("/about/dither.js?h=%x", scriptHash[:10])
+				styleURL := fmt.Sprintf("/style.css?h=%x", styleHash[:10])
+				require.Eventually(t, func() bool {
+					body := fetch("/about/")
+					return strings.Contains(body, scriptURL) && strings.Contains(body, styleURL)
+				}, 5*time.Second, 10*time.Millisecond)
+				require.Equal(t, script, fetch(scriptURL))
+				require.Equal(t, style, fetch(styleURL))
+			}
+		})
+	}
+}
 
 func TestHubReplaysBuildErrorToNewClients(t *testing.T) {
 	t.Parallel()
@@ -65,7 +130,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			files := map[string]string{
-				"config.toml":            "base_url='https://example.com'\ntitle='Initial'\nbuild_search_index=true\n",
+				"config.toml":          "base_url='https://example.com'\ntitle='Initial'\nbuild_search_index=true\n",
 				"content/blog/post.md": "First body",
 				"templates/page.html":  "{{ config.title }}:{{ page.content | safe }}",
 				"static/css/style.css": "old-style",
@@ -210,7 +275,7 @@ func TestServeReloadAndShutdown(t *testing.T) {
 func TestServePreviewSubpath(t *testing.T) {
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"config.toml":           "base_url='https://production.example/old/'\n",
+		"config.toml":         "base_url='https://production.example/old/'\n",
 		"content/post.md":     "Body",
 		"templates/page.html": `{{ config.base_url }}|{{ page.permalink }}|{{ page.content | safe }}`,
 	} {

@@ -185,7 +185,6 @@ func (s *Site) Build(opts BuildOptions) error {
 		s.OutputFS = &filesystem.MirrorFS{Primary: s.OutputFS, Mirror: s.MemoryOutput}
 	}
 	s.Templates.OutputFS = s.OutputFS
-	s.Templates.ConfigureHelpers()
 	if opts.Minify {
 		s.Config.MinifyHTML = true
 	}
@@ -198,6 +197,18 @@ func (s *Site) Build(opts BuildOptions) error {
 	if err := s.validateOutputManifest(); err != nil {
 		return err
 	}
+	s.Templates.ColocatedAssets = make(map[string]string)
+	for _, pg := range s.Library.Pages {
+		for _, asset := range pg.Assets {
+			source, err := filepath.Rel(s.BasePath, asset)
+			if err != nil {
+				return err
+			}
+			dest := filepath.ToSlash(filepath.Join(strings.TrimPrefix(pg.Path, "/"), pg.AssetRelPath(asset)))
+			s.Templates.ColocatedAssets[dest] = filepath.ToSlash(source)
+		}
+	}
+	s.Templates.ConfigureHelpers()
 
 	if s.BuildMode == BuildDisk || s.BuildMode == BuildBoth {
 		// Recheck immediately before deletion, including symlinks changed since New.

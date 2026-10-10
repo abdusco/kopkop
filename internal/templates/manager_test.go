@@ -2,7 +2,9 @@ package templates
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -18,6 +20,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGetURLCachebustSources(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		source    map[string][]byte
+		output    map[string][]byte
+		colocated map[string]string
+		want      string
+	}{
+		{"static source", map[string][]byte{"static/asset.js": []byte("static")}, nil, nil, "static"},
+		{"existing output precedence", map[string][]byte{"static/asset.js": []byte("static")}, map[string][]byte{"asset.js": []byte("output")}, nil, "output"},
+		{"colocated source over stale output", map[string][]byte{"content/bundle/asset.js": []byte("fresh")}, map[string][]byte{"asset.js": []byte("stale")}, map[string]string{"asset.js": "content/bundle/asset.js"}, "fresh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.source["templates/url.txt"] = []byte(`{{ get_url(path="asset.js", cachebust=true, absolute=false) }}`)
+			mgr, err := LoadManagerFS(newMemoryFS(tc.source), newMemoryFS(tc.output), "")
+			require.NoError(t, err)
+			mgr.ColocatedAssets = tc.colocated
+			mgr.ConfigureHelpers()
+			out, err := mgr.Render("url.txt", nil)
+			require.NoError(t, err)
+			h := sha256.Sum256([]byte(tc.want))
+			require.Equal(t, fmt.Sprintf("/asset.js?h=%x", h[:10]), out)
+		})
+	}
+}
 
 func TestManagerLoadAndRenderFallbacks(t *testing.T) {
 	t.Parallel()

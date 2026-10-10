@@ -1,6 +1,8 @@
 package site
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,12 +10,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCachebustColocatedAssets(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mode     BuildMode
+		pagePath string
+	}{
+		{"clean disk", BuildDisk, "about"},
+		{"serve memory", BuildMemory, "about"},
+		{"disk and memory", BuildBoth, "about"},
+		{"custom published path", BuildDisk, "renamed/about"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, body := range map[string]string{
+				"config.toml":             "base_url='https://example.com'\nlink_strategy='relative'\n",
+				"content/about/index.md":  "+++\npath='" + tc.pagePath + "'\n+++\n{{ get_url(path='" + tc.pagePath + "/dither.js', cachebust=true) }}",
+				"content/about/dither.js": "initial script",
+				"static/style.css":        "initial style",
+				"templates/page.html":     `{{ page.content|safe }}|{{ get_url(path="/` + tc.pagePath + `/dither.js", cachebust=true) }}|{{ get_url(path="style.css", cachebust=true) }}|{{ get_url(path="missing.js", cachebust=true) }}`,
+			} {
+				require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
+			}
+			s, err := New(SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
+			require.NoError(t, err)
+			for _, version := range []string{"initial", "updated"} {
+				script := version + " script"
+				style := version + " style"
+				require.NoError(t, os.WriteFile(filepath.Join(root, "content/about/dither.js"), []byte(script), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(root, "static/style.css"), []byte(style), 0o644))
+				require.NoError(t, s.Build(BuildOptions{BuildMode: tc.mode}))
+				body, err := s.OutputFS.ReadFile(tc.pagePath + "/index.html")
+				require.NoError(t, err)
+				h := sha256.Sum256([]byte(script))
+				assetURL := fmt.Sprintf("/%s/dither.js?h=%x", tc.pagePath, h[:10])
+				require.Contains(t, string(body), "<p>"+assetURL+"</p>")
+				require.Contains(t, string(body), "|"+assetURL+"|")
+				h = sha256.Sum256([]byte(style))
+				require.Contains(t, string(body), fmt.Sprintf("|/style.css?h=%x|/missing.js", h[:10]))
+				copied, err := s.OutputFS.ReadFile(tc.pagePath + "/dither.js")
+				require.NoError(t, err)
+				require.Equal(t, script, string(copied))
+			}
+		})
+	}
+}
+
 func TestColocatedAssetsAreCopiedRecursively(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	for name, body := range map[string]string{
-		"config.toml":                         "base_url = \"https://example.com\"\nignored_content = [\"*.psd\"]\n",
+		"config.toml":                       "base_url = \"https://example.com\"\nignored_content = [\"*.psd\"]\n",
 		"content/post/index.md":             "+++\ntitle = 'Post'\n+++\n",
 		"content/post/cover.png":            "cover",
 		"content/post/images/deep/a.png":    "deep",

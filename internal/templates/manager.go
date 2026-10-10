@@ -216,6 +216,8 @@ type Manager struct {
 	Available map[string]struct{}
 	SourceFS  filesystem.FileSystem
 	OutputFS  filesystem.FileSystem
+	// ColocatedAssets maps published asset paths to paths in SourceFS.
+	ColocatedAssets map[string]string
 }
 
 func LoadManager(basePath string, theme string) (*Manager, error) {
@@ -263,7 +265,7 @@ func LoadManagerFS(sourceFS filesystem.FileSystem, outputFS filesystem.FileSyste
 }
 
 func (m *Manager) ConfigureHelpers() {
-	registerDefaultHelpers(m.Engine.Env(), m.SourceFS, m.OutputFS)
+	registerDefaultHelpers(m.Engine.Env(), m.SourceFS, m.OutputFS, m.ColocatedAssets)
 }
 
 func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
@@ -391,7 +393,7 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 	return defs
 }
 
-func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem) {
+func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem, colocatedAssets map[string]string) {
 	img := imageproc.New(sourceFS, outputFS)
 	env.AddFunction("now", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		return value.FromString(time.Now().UTC().Format(time.RFC3339)), nil
@@ -469,11 +471,20 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 			p = "/" + p
 		}
 		if cachebust {
-			local := strings.TrimPrefix(p, "/")
-			if b, err := outputFS.ReadFile(filepath.ToSlash(local)); err == nil {
-				h := sha256.Sum256(b)
-				p = p + "?h=" + fmt.Sprintf("%x", h[:10])
-			} else if b, err := fs.ReadFile(sourceFS, path.Join("static", filepath.ToSlash(local))); err == nil {
+			local := filepath.ToSlash(strings.TrimPrefix(p, "/"))
+			var b []byte
+			var err error
+			if source, ok := colocatedAssets[local]; ok {
+				// These assets are copied after rendering. Always read the source,
+				// including when an earlier build's output is still present.
+				b, err = sourceFS.ReadFile(source)
+			} else {
+				b, err = outputFS.ReadFile(local)
+				if err != nil {
+					b, err = fs.ReadFile(sourceFS, path.Join("static", local))
+				}
+			}
+			if err == nil {
 				h := sha256.Sum256(b)
 				p = p + "?h=" + fmt.Sprintf("%x", h[:10])
 			}
