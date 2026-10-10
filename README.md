@@ -426,6 +426,33 @@ kopkop normalizes common Tera template syntax to MiniJinja on load:
 - Named end tags: `{% endmacro name %}` becomes `{% endmacro %}`
 - Macro call syntax: `macros::func(...)` becomes `macros.func(...)`
 
+## Inline Expressions in Markdown
+
+Markdown bodies in pages and sections support template expressions:
+
+```markdown
+[Download]({{ get_url(path="files/guide.pdf") }})
+{{ config.title }}
+{{ get_page(path="about.md").title | upper }}
+```
+
+Expressions use the existing template functions and filters, with `config` and
+the current `page` or `section` context. Their output is parsed as Markdown,
+including links, headings, and formatting. Output is evaluated once; generated
+expressions are not evaluated again. Rendered content and TOCs are still being
+built at this stage, so use metadata when looking up other pages or sections.
+
+Code spans, fenced code blocks, and indented code blocks stay literal, including
+shortcode calls inside them. To show an expression literally in prose, write
+`\{{ get_url(path="files/guide.pdf") }}` or `{{/* get_url(path="files/guide.pdf") */}}`.
+Malformed expressions and unknown functions fail the build with the content
+path and expression byte offset.
+
+Calls matching an existing inline shortcode template keep their shortcode
+behavior and take precedence over template functions of the same name. Template
+statements such as loops and includes are supported in templates, not Markdown
+bodies; `{% name() %}...{% end %}` remains the body shortcode syntax.
+
 ## Shortcodes
 
 Shortcodes are templates placed in `templates/shortcodes/`. They can be `.html` (rendered after Markdown) or `.md` (rendered before, so Markdown inside is processed).

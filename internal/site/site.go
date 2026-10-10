@@ -511,7 +511,18 @@ func (s *Site) renderContentWithShortcodes(raw string, contentCtx map[string]any
 	if strings.Contains(raw, shortcode.Placeholder) {
 		return markdown.Rendered{}, fmt.Errorf("%s: content contains the reserved text %q", relativePath, shortcode.Placeholder)
 	}
-	out, scs, err := shortcode.Parse(raw)
+	expressionCtx := s.baseTemplateContext()
+	expressionCtx[contextKey] = contentCtx
+	out, scs, err := shortcode.ParseWithOptions(raw, shortcode.ParseOptions{
+		ProtectedRanges: markdown.CodeRanges(raw),
+		IsShortcode: func(name string) bool {
+			_, ok := defs[name]
+			return ok
+		},
+		RenderExpression: func(expression string) (string, error) {
+			return s.Templates.Engine.RenderExpression(expression, expressionCtx)
+		},
+	})
 	if err != nil {
 		return markdown.Rendered{}, err
 	}

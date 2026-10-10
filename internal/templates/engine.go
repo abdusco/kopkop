@@ -51,6 +51,16 @@ func (e *Engine) Render(name string, ctx any) (string, error) {
 	return tpl.Render(ctx)
 }
 
+// RenderExpression uses the same functions and filters as templates, without
+// registering a template or HTML-escaping output before Markdown parses it.
+func (e *Engine) RenderExpression(expression string, ctx any) (string, error) {
+	tpl, err := e.env.TemplateFromNamedString("inline.md", "{{ "+expression+" }}")
+	if err != nil {
+		return "", err
+	}
+	return tpl.Render(ctx)
+}
+
 func (e *Engine) EnableRelativeTemplateResolution() {
 	e.env.SetPathJoinCallback(DefaultTemplatePathJoin)
 }

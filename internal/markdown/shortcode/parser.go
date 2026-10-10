@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 const Placeholder = "@@KOPKOP_SC_PLACEHOLDER@@"
@@ -55,16 +56,27 @@ func (c *invocationCounter) Next(name string) int {
 }
 
 func Parse(content string) (string, []Shortcode, error) {
-	return parseWithCounter(content, newInvocationCounter())
+	return ParseWithOptions(content, ParseOptions{})
 }
 
-func parseWithCounter(content string, counter *invocationCounter) (string, []Shortcode, error) {
+type ParseOptions struct {
+	// ProtectedRanges contains literal code regions in the original source.
+	ProtectedRanges  [][2]int
+	IsShortcode      func(string) bool
+	RenderExpression func(string) (string, error)
+}
+
+func ParseWithOptions(content string, opts ParseOptions) (string, []Shortcode, error) {
+	return parseWithCounter(content, newInvocationCounter(), opts, 0)
+}
+
+func parseWithCounter(content string, counter *invocationCounter, opts ParseOptions, offset int) (string, []Shortcode, error) {
 	var out strings.Builder
 	out.Grow(len(content))
 	shortcodes := make([]Shortcode, 0)
 
 	for i := 0; i < len(content); {
-		next, kind := nextMarker(content, i)
+		next, kind := nextActiveMarker(content, i, opts, offset)
 		if next == -1 {
 			out.WriteString(content[i:])
 			break
@@ -87,12 +99,28 @@ func parseWithCounter(content string, counter *invocationCounter) (string, []Sho
 		case "inline":
 			end := indexOutsideQuotes(content[i+2:], "}}")
 			if end == -1 {
+				if opts.RenderExpression != nil {
+					return "", nil, fmt.Errorf("unterminated inline expression at byte %d", offset+i)
+				}
 				out.WriteString("{{")
 				i += 2
 				continue
 			}
 			end += 2
 			inner := strings.TrimSpace(content[i+2 : i+end])
+			isShortcode := looksLikeCall(inner)
+			if isShortcode && opts.IsShortcode != nil {
+				isShortcode = opts.IsShortcode(strings.TrimSpace(inner[:strings.IndexByte(inner, '(')]))
+			}
+			if !isShortcode && opts.RenderExpression != nil {
+				rendered, err := opts.RenderExpression(inner)
+				if err != nil {
+					return "", nil, fmt.Errorf("inline expression at byte %d: %w", offset+i, err)
+				}
+				out.WriteString(rendered)
+				i += end + 2
+				continue
+			}
 			if !looksLikeCall(inner) {
 				// Not a shortcode call (for example "{{ .Title }}"): plain text.
 				out.WriteString("{{")
@@ -155,13 +183,15 @@ func parseWithCounter(content string, counter *invocationCounter) (string, []Sho
 			nth := counter.Next(name)
 
 			bodyOpenEnd := i + tagEnd + 2
-			bodyTagStart, bodyTagEnd, err := findMatchingEnd(content, bodyOpenEnd)
+			bodyTagStart, bodyTagEnd, err := findMatchingEndWithOptions(content, bodyOpenEnd, opts, offset)
 			if err != nil {
 				return "", nil, err
 			}
 
-			rawBody := strings.TrimSpace(content[bodyOpenEnd:bodyTagStart])
-			parsedBody, innerSC, err := parseWithCounter(rawBody, counter)
+			bodySource := content[bodyOpenEnd:bodyTagStart]
+			rawBody := strings.TrimSpace(bodySource)
+			bodyOffset := offset + bodyOpenEnd + len(bodySource) - len(strings.TrimLeftFunc(bodySource, unicode.IsSpace))
+			parsedBody, innerSC, err := parseWithCounter(rawBody, counter, opts, bodyOffset)
 			if err != nil {
 				return "", nil, err
 			}
@@ -186,6 +216,30 @@ func parseWithCounter(content string, counter *invocationCounter) (string, []Sho
 	}
 
 	return out.String(), shortcodes, nil
+}
+
+func nextActiveMarker(s string, from int, opts ParseOptions, offset int) (int, string) {
+	for {
+		next, kind := nextMarker(s, from)
+		if next == -1 {
+			return next, kind
+		}
+		protected := false
+		for _, span := range opts.ProtectedRanges {
+			if offset+next >= span[0] && offset+next < span[1] {
+				protected = true
+				break
+			}
+		}
+		slashes := 0
+		for j := next - 1; j >= 0 && s[j] == '\\'; j-- {
+			slashes++
+		}
+		if !protected && slashes%2 == 0 {
+			return next, kind
+		}
+		from = next + 2
+	}
 }
 
 func nextMarker(s string, from int) (int, string) {
@@ -216,20 +270,34 @@ func nextMarker(s string, from int) (int, string) {
 	return best, bestKind
 }
 
-func findMatchingEnd(content string, from int) (int, int, error) {
+func findMatchingEndWithOptions(content string, from int, opts ParseOptions, offset int) (int, int, error) {
 	depth := 1
 	for i := from; i < len(content); {
-		next := strings.Index(content[i:], "{%")
+		next, kind := nextActiveMarker(content, i, opts, offset)
 		if next == -1 {
 			break
 		}
-		tagStart := i + next
-		tagCloseRel := strings.Index(content[tagStart:], "%}")
+		if kind != "body" && kind != "ignored-body" {
+			// A quoted string inside an inline expression can contain body tags.
+			if kind == "inline" {
+				if end := indexOutsideQuotes(content[next+2:], "}}"); end >= 0 {
+					i = next + 2 + end + 2
+					continue
+				}
+			} else if end := strings.Index(content[next:], "*/}}"); end >= 0 {
+				i = next + end + 4
+				continue
+			}
+			i = next + 2
+			continue
+		}
+		tagStart := next
+		tagCloseRel := indexOutsideQuotes(content[tagStart+2:], "%}")
 		if tagCloseRel == -1 {
 			return 0, 0, fmt.Errorf("unterminated shortcode body")
 		}
-		tagEnd := tagStart + tagCloseRel + 2
-		inner := strings.TrimSpace(content[tagStart+2 : tagStart+tagCloseRel])
+		tagEnd := tagStart + 2 + tagCloseRel + 2
+		inner := strings.TrimSpace(content[tagStart+2 : tagStart+2+tagCloseRel])
 
 		if strings.HasPrefix(inner, "/*") {
 			i = tagEnd
@@ -268,6 +336,7 @@ func looksLikeCall(s string) bool {
 // indexOutsideQuotes finds needle in s, ignoring occurrences inside quoted strings.
 func indexOutsideQuotes(s, needle string) int {
 	var quote byte
+	braceDepth := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if quote != 0 {
@@ -282,8 +351,13 @@ func indexOutsideQuotes(s, needle string) int {
 			quote = c
 			continue
 		}
-		if strings.HasPrefix(s[i:], needle) {
+		if braceDepth == 0 && strings.HasPrefix(s[i:], needle) {
 			return i
+		}
+		if c == '{' {
+			braceDepth++
+		} else if c == '}' && braceDepth > 0 {
+			braceDepth--
 		}
 	}
 	return -1

@@ -17,7 +17,7 @@ func TestShortcodesInSectionsAndSummaries(t *testing.T) {
 	}{
 		{name: "before and after divider", raw: "# Heading\n\n[post](@/post.md) ![asset](image.png)\n\n{{ mark() }}\n\n{{ note() }}\n\n<!-- more -->\n\n{{ tail() }}"},
 		{name: "without divider", raw: "{{ mark() }}\n\n{{ note() }}"},
-		{name: "unknown shortcode", raw: "{{ missing() }}", wantError: "unknown shortcode"},
+		{name: "unknown inline callable", raw: "{{ missing() }}", wantError: "unknown function"},
 		{name: "shortcode template failure", raw: "{{ broken() }}", wantError: "missing.html"},
 		{name: "broken markdown link", raw: "[missing](@/missing.md)", wantError: "broken relative link"},
 	} {
