@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,58 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServeReusesRemoteDataAfterContentEdit(t *testing.T) {
+	var hits atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("repository data"))
+	}))
+	defer remote.Close()
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"config.toml":         "base_url='https://example.com'\n",
+		"content/post.md":     "Original",
+		"templates/page.html": `{{ load_url(url="` + remote.URL + `", format="plain") }}|{{ page.content | safe }}`,
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o644))
+	}
+	s, err := site.New(site.SiteParams{BasePath: root, ConfigPath: filepath.Join(root, "config.toml")})
+	require.NoError(t, err)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan error, 1)
+	go func() { finished <- run(ctx, s, ServeOptions{Debounce: 20 * time.Millisecond}, listener) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-finished:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			_ = listener.Close()
+			t.Error("serve did not stop")
+		}
+	})
+	client := &http.Client{Timeout: time.Second}
+	defer client.CloseIdleConnections()
+	for _, version := range []string{"Original", "Original."} {
+		if version == "Original." {
+			require.NoError(t, os.WriteFile(filepath.Join(root, "content/post.md"), []byte(version), 0o644))
+		}
+		require.Eventually(t, func() bool {
+			resp, err := client.Get("http://" + listener.Addr().String() + "/post/")
+			if err != nil {
+				return false
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			return err == nil && strings.Contains(string(body), "repository data") && strings.Contains(string(body), version)
+		}, 5*time.Second, 10*time.Millisecond)
+		require.EqualValues(t, 1, hits.Load())
+	}
+}
 
 func TestServeCachebustAssetChanges(t *testing.T) {
 	for _, store := range []bool{false, true} {

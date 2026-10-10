@@ -182,13 +182,18 @@ func runBuild(args []string) error {
 	if err := s.Load(*drafts); err != nil {
 		return err
 	}
-	return s.Build(site.BuildOptions{
+	started := time.Now()
+	if err := s.Build(site.BuildOptions{
 		IncludeDrafts: *drafts,
 		BaseURL:       *baseURL,
 		BuildMode:     site.BuildDisk,
 		Minify:        *minify,
 		Concurrency:   *concurrency,
-	})
+	}); err != nil {
+		return err
+	}
+	log.Printf("build succeeded in %.2fs", time.Since(started).Seconds())
+	return nil
 }
 
 func runServe(args []string) error {

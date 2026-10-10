@@ -60,6 +60,8 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 	mount := strings.TrimRight(preview.Path, "/")
 	liveAddr := mount + "/__livereload"
 	build := func(candidate *site.Site) error {
+		started := time.Now()
+		candidate.Templates.ReuseURLCache(s.Templates, candidate.Config.LoadURLCacheTTL)
 		if err := candidate.Build(site.BuildOptions{IncludeDrafts: opts.IncludeDrafts, BuildMode: site.BuildMemory, BaseURL: preview.String(), LiveReloadURL: liveAddr}); err != nil {
 			return err
 		}
@@ -67,8 +69,11 @@ func run(ctx context.Context, s *site.Site, opts ServeOptions, listener net.List
 			return err
 		}
 		if opts.StoreHTML {
-			return storeOutput(candidate)
+			if err := storeOutput(candidate); err != nil {
+				return err
+			}
 		}
+		log.Printf("build succeeded in %.2fs", time.Since(started).Seconds())
 		return nil
 	}
 	candidate, err := s.Reload()

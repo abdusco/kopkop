@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/abdusco/kopkop/internal/filesystem"
@@ -171,6 +172,7 @@ type Config struct {
 	LinkChecker       LinkChecker      `toml:"link_checker"`
 	IgnoredContent    []string         `toml:"ignored_content"`
 	ExtraWatchPaths   []string         `toml:"extra_watch_paths"`
+	LoadURLCacheTTL   time.Duration    `toml:"load_url_cache_ttl"`
 	PathsKeepDates    bool             `toml:"paths_keep_dates"`
 	// GitDates fills page.updated from the last git commit when front matter has no `updated`.
 	GitDates            bool `toml:"git_dates"`
@@ -188,6 +190,7 @@ func Default() Config {
 		GenerateSitemap:   true,
 		GenerateRobotsTXT: true,
 		MinifyHTML:        false,
+		LoadURLCacheTTL:   5 * time.Minute,
 		Taxonomies:        []TaxonomyConfig{},
 		Markdown: Markdown{
 			InsertAnchorLinks:        false,
@@ -273,6 +276,9 @@ func (c *Config) MergeThemeFS(sourceFS fs.FS, themeTomlPath string) error {
 }
 
 func (c *Config) Validate() error {
+	if c.LoadURLCacheTTL < 0 {
+		return errors.New("load_url_cache_ttl must not be negative")
+	}
 	c.BaseURL = strings.TrimSpace(c.BaseURL)
 	c.LinkStrategy = strings.ToLower(strings.TrimSpace(c.LinkStrategy))
 	c.LinkChecker.InternalLevel = LinkCheckerLevel(strings.ToLower(strings.TrimSpace(string(c.LinkChecker.InternalLevel))))

@@ -4,10 +4,40 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestLoadURLCacheTTL(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, setting string
+		want          time.Duration
+		wantErr       string
+	}{
+		{name: "default", want: 5 * time.Minute},
+		{name: "custom", setting: `load_url_cache_ttl = "30s"`, want: 30 * time.Second},
+		{name: "disabled", setting: `load_url_cache_ttl = "0s"`},
+		{name: "negative", setting: `load_url_cache_ttl = "-1s"`, wantErr: "load_url_cache_ttl must not be negative"},
+		{name: "invalid", setting: `load_url_cache_ttl = "later"`, wantErr: "load_url_cache_ttl"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			filename := filepath.Join(t.TempDir(), "config.toml")
+			require.NoError(t, os.WriteFile(filename, []byte(tc.setting), 0o644))
+			cfg, err := FromFile(filename)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.LoadURLCacheTTL)
+			require.Empty(t, cfg.UnsupportedKeys)
+		})
+	}
+}
 
 func TestFromFile_AndThemeMerge(t *testing.T) {
 	t.Parallel()

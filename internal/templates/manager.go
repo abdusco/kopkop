@@ -54,14 +54,16 @@ type urlCacheEntry struct {
 }
 
 type urlLoad struct {
-	done  chan struct{}
-	entry urlCacheEntry
-	err   error
+	done      chan struct{}
+	entry     urlCacheEntry
+	err       error
+	expiresAt time.Time
 }
 
 type responseCache struct {
 	mu    sync.Mutex
 	loads map[string]*urlLoad
+	ttl   time.Duration
 }
 
 func (c *responseCache) Load(req *http.Request, body string) (urlCacheEntry, error) {
@@ -69,9 +71,12 @@ func (c *responseCache) Load(req *http.Request, body string) (urlCacheEntry, err
 	key := fmt.Sprintf("%x", sha256.Sum256(identity))
 	c.mu.Lock()
 	if existing := c.loads[key]; existing != nil {
-		c.mu.Unlock()
-		<-existing.done
-		return existing.entry, existing.err
+		if existing.expiresAt.IsZero() || time.Now().Before(existing.expiresAt) {
+			c.mu.Unlock()
+			<-existing.done
+			return existing.entry, existing.err
+		}
+		delete(c.loads, key)
 	}
 	if c.loads == nil {
 		c.loads = map[string]*urlLoad{}
@@ -83,6 +88,8 @@ func (c *responseCache) Load(req *http.Request, body string) (urlCacheEntry, err
 	c.mu.Lock()
 	if load.err != nil {
 		delete(c.loads, key)
+	} else if c.ttl > 0 {
+		load.expiresAt = time.Now().Add(c.ttl)
 	}
 	close(load.done)
 	c.mu.Unlock()
@@ -211,6 +218,7 @@ func parseData(b []byte, format string) (value.Value, error) {
 }
 
 type Manager struct {
+	urlCache  *responseCache
 	Engine    *Engine
 	Resolver  Resolver
 	Available map[string]struct{}
@@ -265,7 +273,24 @@ func LoadManagerFS(sourceFS filesystem.FileSystem, outputFS filesystem.FileSyste
 }
 
 func (m *Manager) ConfigureHelpers() {
-	registerDefaultHelpers(m.Engine.Env(), m.SourceFS, m.OutputFS, m.ColocatedAssets)
+	cache := m.urlCache
+	if cache == nil {
+		cache = &responseCache{}
+	}
+	registerDefaultHelpers(m.Engine.Env(), m.SourceFS, m.OutputFS, m.ColocatedAssets, cache)
+}
+
+// ReuseURLCache retains remote responses across preview builds while allowing
+// templates and local data to be reloaded independently.
+func (m *Manager) ReuseURLCache(previous *Manager, ttl time.Duration) {
+	if ttl <= 0 {
+		m.urlCache = nil
+		return
+	}
+	if previous.urlCache == nil || previous.urlCache.ttl != ttl {
+		previous.urlCache = &responseCache{ttl: ttl}
+	}
+	m.urlCache = previous.urlCache
 }
 
 func (m *Manager) loadTemplatesFrom(root string, prefix string) error {
@@ -393,7 +418,7 @@ func (m *Manager) ShortcodeDefinitions() map[string]ShortcodeDefinition {
 	return defs
 }
 
-func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem, colocatedAssets map[string]string) {
+func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.FileSystem, outputFS filesystem.FileSystem, colocatedAssets map[string]string, urlCache *responseCache) {
 	img := imageproc.New(sourceFS, outputFS)
 	env.AddFunction("now", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		return value.FromString(time.Now().UTC().Format(time.RFC3339)), nil
@@ -614,8 +639,6 @@ func registerDefaultHelpers(env *minijinja.Environment, sourceFS filesystem.File
 
 		return parseData(b, format)
 	})
-
-	urlCache := &responseCache{}
 
 	env.AddFunction("load_url", func(state *minijinja.State, args []value.Value, kwargs map[string]value.Value) (value.Value, error) {
 		rawURL, ok := kwargs["url"]

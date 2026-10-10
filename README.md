@@ -180,6 +180,9 @@ ignored_content = []
 # Additional paths to watch in serve mode
 extra_watch_paths = []
 
+# Reuse load_url responses across serve reloads; "0s" disables reuse
+load_url_cache_ttl = "5m"
+
 # Whether to retain filename date prefixes in URL slugs
 paths_keep_dates = false
 
@@ -406,6 +409,8 @@ File helpers read within the site root; generated files stay within the output r
 | `get_hash(path, base64=false)` | SHA-384 hash of a file or string. |
 | `get_image_metadata(path=...)` | Returns `{width, height, format}` for an image. |
 | `resize_image(path=..., width=..., height=..., op="fill")` | Resize an image and return `{url, width, height, static_path}`. `op` is `scale` (stretch to exactly width x height), `fit_width`, `fit_height`, `fit` (fit inside the box, keeping the aspect ratio) or `fill` (default: cover the box, then crop the centre). `url` includes `base_url` and its path prefix. |
+
+During `kopkop serve`, successful `load_url` responses are reused across reloads for `load_url_cache_ttl` (default `"5m"`). Set it to `"0s"` to disable reuse across builds. Expired responses are fetched on the next build that uses them; restarting the server or changing the duration clears this cache. Local files loaded with `load_data` are read on every build.
 
 ### Template Filters
 
